@@ -20,6 +20,7 @@ func (obj *StorageST) StreamChannelMake(val ChannelST) ChannelST {
 			"call":   "mergo.Merge",
 		}).Errorln(err.Error())
 	}
+	applyChannelDefaults(&channel)
 	//make client's
 	channel.clients = make(map[string]ClientST)
 	//make last ack

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/url"
 	"net/http"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 
 type GlobalSettingsPayload struct {
 	UILanguageDefault string      `json:"ui_language_default"`
+	PublicBaseURL     string      `json:"public_base_url"`
 	Recording         RecordingST `json:"recording"`
 	Share             ShareST     `json:"share"`
 	HTTPLogin         string      `json:"http_login"`
@@ -35,6 +37,7 @@ func HTTPAPIGetGlobalSettings(c *gin.Context) {
 	Storage.mutex.RLock()
 	payload := GlobalSettingsPayload{
 		UILanguageDefault: Storage.Server.UILanguageDefault,
+		PublicBaseURL:     Storage.Server.PublicBaseURL,
 		Recording:         Storage.Server.Recording,
 		Share:             Storage.Server.Share,
 		HTTPLogin:         Storage.Server.HTTPLogin,
@@ -55,6 +58,19 @@ func HTTPAPIUpdateGlobalSettings(c *gin.Context) {
 	if lang != "" && lang != "zh-CN" && lang != "en-US" {
 		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "unsupported ui language"})
 		return
+	}
+	publicBaseURL := strings.TrimSpace(payload.PublicBaseURL)
+	if publicBaseURL != "" {
+		publicBaseURL = strings.TrimRight(publicBaseURL, "/")
+		parsed, err := url.Parse(publicBaseURL)
+		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+			c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "invalid public base url"})
+			return
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "public base url must start with http:// or https://"})
+			return
+		}
 	}
 
 	if payload.Recording.MaxDurationMinutes <= 0 {
@@ -89,6 +105,7 @@ func HTTPAPIUpdateGlobalSettings(c *gin.Context) {
 	if lang != "" {
 		Storage.Server.UILanguageDefault = lang
 	}
+	Storage.Server.PublicBaseURL = publicBaseURL
 	Storage.Server.Recording = payload.Recording
 	Storage.Server.Share = payload.Share
 	if strings.TrimSpace(payload.HTTPLogin) != "" {

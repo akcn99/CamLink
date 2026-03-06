@@ -138,9 +138,40 @@ func HTTPAPIShareSessionStop(c *gin.Context) {
 }
 
 func buildAbsoluteURL(c *gin.Context, path string) string {
-	scheme := "http"
-	if c.Request.TLS != nil {
-		scheme = "https"
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
 	}
-	return scheme + "://" + c.Request.Host + path
+	if baseURL := strings.TrimSpace(Storage.ServerPublicBaseURL()); baseURL != "" {
+		return strings.TrimRight(baseURL, "/") + path
+	}
+
+	scheme := forwardedHeaderFirst(c.GetHeader("X-Forwarded-Proto"))
+	if scheme == "" {
+		scheme = forwardedHeaderFirst(c.GetHeader("X-Forwarded-Scheme"))
+	}
+	if scheme == "" {
+		scheme = "http"
+		if c.Request.TLS != nil {
+			scheme = "https"
+		}
+	}
+	host := forwardedHeaderFirst(c.GetHeader("X-Forwarded-Host"))
+	if host == "" {
+		host = c.Request.Host
+	}
+	if host == "" {
+		host = "127.0.0.1:8083"
+	}
+	return scheme + "://" + host + path
+}
+
+func forwardedHeaderFirst(value string) string {
+	if value == "" {
+		return ""
+	}
+	parts := strings.Split(value, ",")
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(parts[0])
 }

@@ -8,6 +8,7 @@
   <link rel="icon" href="/../static/img/lens.svg">
   <link rel="stylesheet" href="/../static/plugins/bootstrap/css/bootstrap.min.css">
   <link rel="stylesheet" href="/../static/plugins/fontawesome-free/css/all.min.css">
+  <link rel="stylesheet" href="/../static/plugins/sweetalert2/sweetalert2.min.css">
   <link rel="stylesheet" href="/../static/css/index.css">
 </head>
 
@@ -26,6 +27,7 @@
           <input id="loginPassword" class="form-control" type="password" autocomplete="current-password" />
         </div>
         <button id="loginSubmit" class="btn btn-primary btn-block" type="button" data-i18n="login_btn">登录</button>
+        <div id="loginError" class="alert alert-danger mt-3 mb-0 d-none" role="alert"></div>
         <div class="text-center mt-3">
           <a href="#" id="toggleLang" class="small">English</a>
         </div>
@@ -34,7 +36,6 @@
   </div>
 
   <script src="/../static/plugins/jquery/jquery.min.js"></script>
-  <script src="/../static/plugins/sweetalert2/sweetalert2.min.js"></script>
   <script src="/../static/js/i18n.js"></script>
   <script>
     (function () {
@@ -49,7 +50,28 @@
       });
       $("#toggleLang").text(getUILang() === "zh-CN" ? "English" : "中文");
 
+      function normalizeLoginError(message) {
+        if (!message) {
+          return t("login_fail");
+        }
+        if (String(message).toLowerCase() === "invalid credentials") {
+          return t("login_fail");
+        }
+        return message;
+      }
+
+      function showLoginError(message) {
+        $("#loginError").text(message).removeClass("d-none");
+      }
+
+      function hideLoginError() {
+        $("#loginError").addClass("d-none").text("");
+      }
+
       function submitLogin() {
+        hideLoginError();
+        const submitButton = $("#loginSubmit");
+        submitButton.prop("disabled", true).text(t("loading") + "...");
         const nextUrl = new URLSearchParams(window.location.search).get("next") || "/";
         $.ajax({
           url: "/api/auth/login",
@@ -63,12 +85,11 @@
             window.location.href = nextUrl;
           },
           error: function (xhr) {
-            Swal.fire({
-              icon: "error",
-              title: t("login_fail_title"),
-              text: (xhr.responseJSON && xhr.responseJSON.payload) ? xhr.responseJSON.payload : t("login_fail"),
-              confirmButtonText: t("ok")
-            });
+            const rawMsg = (xhr.responseJSON && xhr.responseJSON.payload) ? xhr.responseJSON.payload : t("login_fail");
+            showLoginError(normalizeLoginError(rawMsg));
+          },
+          complete: function () {
+            submitButton.prop("disabled", false).text(t("login_btn"));
           }
         });
       }
@@ -79,6 +100,7 @@
           submitLogin();
         }
       });
+      $("#loginUsername, #loginPassword").on("input", hideLoginError);
     })();
   </script>
 </body>

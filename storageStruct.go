@@ -72,6 +72,7 @@ type ServerST struct {
 	HTTPAuth           bool         `json:"http_auth" groups:"api,config"`
 	HTTPDir            string       `json:"http_dir" groups:"api,config"`
 	HTTPPort           string       `json:"http_port" groups:"api,config"`
+	PublicBaseURL      string       `json:"public_base_url,omitempty" groups:"api,config"`
 	RTSPPort           string       `json:"rtsp_port" groups:"api,config"`
 	HTTPS              bool         `json:"https" groups:"api,config"`
 	HTTPSPort          string       `json:"https_port" groups:"api,config"`

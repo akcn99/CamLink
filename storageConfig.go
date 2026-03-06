@@ -46,6 +46,7 @@ func NewStreamCore() *StorageST {
 		os.Exit(1)
 	}
 	applyServerDefaults(&tmp.Server)
+	applyChannelDefaults(&tmp.ChannelDefaults)
 	debug = tmp.Server.Debug
 	for i, i2 := range tmp.Streams {
 		for i3, i4 := range i2.Channels {
@@ -63,6 +64,7 @@ func NewStreamCore() *StorageST {
 			channel.ack = time.Now().Add(-255 * time.Hour)
 			channel.hlsSegmentBuffer = make(map[int]SegmentOld)
 			channel.signals = make(chan int, 100)
+			applyChannelDefaults(&channel)
 			i2.Channels[i3] = channel
 		}
 		tmp.Streams[i] = i2
@@ -124,6 +126,14 @@ func applyServerDefaults(server *ServerST) {
 	}
 	if server.SessionTTLMinutes <= 0 {
 		server.SessionTTLMinutes = 720
+	}
+}
+
+func applyChannelDefaults(channel *ChannelST) {
+	// Most cameras are expected to have audio; enable it by default unless
+	// explicitly configured in the future by a dedicated field.
+	if !channel.Audio {
+		channel.Audio = true
 	}
 }
 

@@ -70,6 +70,13 @@ func (obj *StorageST) ServerHTTPPort() string {
 	return obj.Server.HTTPPort
 }
 
+// ServerPublicBaseURL read external base URL used for share links
+func (obj *StorageST) ServerPublicBaseURL() string {
+	obj.mutex.RLock()
+	defer obj.mutex.RUnlock()
+	return obj.Server.PublicBaseURL
+}
+
 //ServerRTSPPort read HTTP Port options
 func (obj *StorageST) ServerRTSPPort() string {
 	obj.mutex.RLock()

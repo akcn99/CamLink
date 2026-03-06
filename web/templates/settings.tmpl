@@ -83,6 +83,10 @@
           </div>
           <div class="card-body">
             <div class="form-group">
+              <label data-i18n="settings_public_base_url">对外访问基址(URL)</label>
+              <input id="publicBaseUrl" class="form-control" type="text" placeholder="https://camlink.example.com">
+            </div>
+            <div class="form-group">
               <label data-i18n="settings_share_expire">默认有效时间(分钟)</label>
               <input id="shareExpire" class="form-control" type="number" min="1" max="1440">
             </div>
@@ -141,6 +145,7 @@
       $("#recordResolution").val(r.resolution || "source");
       $("#recordCodec").val(r.video_codec || "source");
       const share = s.share || {};
+      $("#publicBaseUrl").val(s.public_base_url || "");
       $("#shareExpire").val(share.default_expire_minutes || 60);
       $("#shareMaxConn").val(share.default_max_connections || 1);
     });
@@ -151,6 +156,7 @@
       ui_language_default: $("#uiLanguage").val(),
       http_login: $("#adminLogin").val(),
       session_ttl_minutes: parseInt($("#sessionTtl").val(), 10) || 720,
+      public_base_url: $("#publicBaseUrl").val(),
       recording: {
         save_path: $("#recordPath").val(),
         format: $("#recordFormat").val(),

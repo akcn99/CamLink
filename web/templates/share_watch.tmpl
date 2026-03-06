@@ -9,18 +9,54 @@
   <link rel="stylesheet" href="/../static/plugins/bootstrap/css/bootstrap.min.css">
   <link rel="stylesheet" href="/../static/plugins/sweetalert2/sweetalert2.min.css">
   <link rel="stylesheet" href="/../static/css/index.css">
+  <style>
+    .share-watch-header {
+      gap: 10px;
+    }
+
+    .share-watch-toolbar {
+      gap: 8px;
+    }
+
+    .share-protocol-group .btn {
+      min-width: 66px;
+    }
+
+    #shareVideoPlayer {
+      width: 100%;
+      height: calc(100vh - 56px);
+      min-height: 260px;
+      background: #000;
+      object-fit: contain;
+    }
+
+    @media (max-width: 767px) {
+      #shareVideoPlayer {
+        height: calc(100vh - 96px);
+      }
+    }
+  </style>
 </head>
 
 <body class="bg-dark">
   <div class="container-fluid p-0">
-    <div class="share-watch-header px-3 py-2 text-white d-flex justify-content-between align-items-center">
+    <div class="share-watch-header px-3 py-2 text-white d-flex flex-wrap justify-content-between align-items-center">
       <div>
         <strong data-i18n="share_watch_title">分享视频</strong>
         <span class="ml-2 small text-warning" id="shareExpireAt"></span>
       </div>
-      <span class="badge badge-info" id="shareState" data-i18n="loading">加载中</span>
+      <div class="d-flex align-items-center share-watch-toolbar">
+        <span class="small text-light d-none d-md-inline" data-i18n="share_switch_protocol">切换协议</span>
+        <div class="btn-group btn-group-sm share-protocol-group" role="group" aria-label="protocol-switch">
+          <button type="button" class="btn btn-outline-light share-protocol-btn active" data-protocol="auto" data-i18n="share_protocol_auto">自动</button>
+          <button type="button" class="btn btn-outline-light share-protocol-btn" data-protocol="mse" data-i18n="share_protocol_mse">MSE</button>
+          <button type="button" class="btn btn-outline-light share-protocol-btn" data-protocol="webrtc" data-i18n="share_protocol_webrtc">WebRTC</button>
+          <button type="button" class="btn btn-outline-light share-protocol-btn" data-protocol="hls" data-i18n="share_protocol_hls">HLS</button>
+        </div>
+        <span class="badge badge-info" id="shareState" data-i18n="loading">加载中</span>
+      </div>
     </div>
-    <video id="shareVideoPlayer" class="w-100" controls autoplay playsinline></video>
+    <video id="shareVideoPlayer" controls autoplay playsinline webkit-playsinline></video>
   </div>
 
   <script src="/../static/plugins/jquery/jquery.min.js"></script>
@@ -31,25 +67,516 @@
     (function () {
       window.serverUiLang = '{{ .ui_lang }}';
       applyI18n();
+
+      const PROTOCOL = {
+        AUTO: "auto",
+        MSE: "mse",
+        WEBRTC: "webrtc",
+        HLS: "hls"
+      };
+
       const shareId = "{{ .share_id }}";
       const password = "{{ .share_password }}";
+      const player = $("#shareVideoPlayer")[0];
+
       let viewerId = "";
       let heartbeatTimer = null;
-      let streamToken = "";
-      let hls = null;
+      let sharePayload = null;
+      let currentEngine = null;
+      let currentMode = PROTOCOL.AUTO;
 
-      function setState(text) {
-        $("#shareState").text(text);
+      function protocolLabel(protocol) {
+        switch (protocol) {
+          case PROTOCOL.MSE:
+            return t("share_protocol_mse");
+          case PROTOCOL.WEBRTC:
+            return t("share_protocol_webrtc");
+          case PROTOCOL.HLS:
+            return t("share_protocol_hls");
+          default:
+            return t("share_protocol_auto");
+        }
+      }
+
+      function setProtocolButtons(mode) {
+        $(".share-protocol-btn").removeClass("active");
+        $('.share-protocol-btn[data-protocol="' + mode + '"]').addClass("active");
+      }
+
+      function setState(text, tone) {
+        const level = tone || "info";
+        $("#shareState")
+          .removeClass("badge-info badge-success badge-warning badge-danger")
+          .addClass(
+            level === "success" ? "badge-success" :
+              level === "warning" ? "badge-warning" :
+                level === "danger" ? "badge-danger" :
+                  "badge-info"
+          )
+          .text(text);
+      }
+
+      function normalizeError(message) {
+        const text = String(message || "");
+        const lower = text.toLowerCase();
+        if (lower.indexOf("connection limit") >= 0) {
+          return t("share_conn_limit");
+        }
+        if (lower.indexOf("invalid credentials") >= 0 || lower.indexOf("password") >= 0) {
+          return t("share_failed");
+        }
+        return text || t("share_failed");
       }
 
       function showError(text) {
-        setState(t("error"));
+        setState(t("error"), "danger");
         Swal.fire({
           icon: "error",
           title: t("error"),
-          text: text,
+          text: normalizeError(text),
           confirmButtonText: t("ok")
         });
+      }
+
+      function safePlay() {
+        const playPromise = player.play();
+        if (playPromise && typeof playPromise.catch === "function") {
+          playPromise.catch(function () {
+            setState(t("share_tap_to_play"), "warning");
+          });
+        }
+      }
+
+      function clearPlayerElement() {
+        try {
+          player.pause();
+        } catch (_) { }
+        try {
+          player.removeAttribute("src");
+          player.srcObject = null;
+          player.load();
+        } catch (_) { }
+      }
+
+      function destroyCurrentEngine() {
+        if (currentEngine && typeof currentEngine.destroy === "function") {
+          currentEngine.destroy();
+        }
+        currentEngine = null;
+        clearPlayerElement();
+      }
+
+      function waitForRenderableVideo(timeoutMs) {
+        return new Promise(function (resolve, reject) {
+          const deadline = Date.now() + timeoutMs;
+          let stopped = false;
+
+          function finish(err) {
+            if (stopped) {
+              return;
+            }
+            stopped = true;
+            player.removeEventListener("error", onVideoError);
+            clearInterval(checkTimer);
+            if (err) {
+              reject(err);
+              return;
+            }
+            resolve();
+          }
+
+          function onVideoError() {
+            finish(new Error("video element error"));
+          }
+
+          const checkTimer = setInterval(function () {
+            if (player.videoWidth > 0 && player.videoHeight > 0) {
+              finish();
+              return;
+            }
+            if (Date.now() > deadline) {
+              finish(new Error("video render timeout"));
+            }
+          }, 250);
+
+          player.addEventListener("error", onVideoError, { once: true });
+        });
+      }
+
+      function createMSEEngine(payload) {
+        let ws = null;
+        let mse = null;
+        let sourceBuffer = null;
+        let queue = [];
+        let streamingStarted = false;
+        let objectURL = "";
+        let destroyed = false;
+
+        function pushPacket() {
+          if (!sourceBuffer || sourceBuffer.updating) {
+            return;
+          }
+          if (queue.length > 0) {
+            const packet = queue.shift();
+            sourceBuffer.appendBuffer(packet);
+            return;
+          }
+          streamingStarted = false;
+        }
+
+        function readPacket(packet) {
+          if (!sourceBuffer) {
+            return;
+          }
+          if (!streamingStarted) {
+            sourceBuffer.appendBuffer(packet);
+            streamingStarted = true;
+            return;
+          }
+          queue.push(packet);
+          if (!sourceBuffer.updating) {
+            pushPacket();
+          }
+        }
+
+        return {
+          start: function () {
+            return new Promise(function (resolve, reject) {
+              let settled = false;
+
+              function doneResolve() {
+                if (settled || destroyed) {
+                  return;
+                }
+                settled = true;
+                resolve();
+              }
+
+              function doneReject(err) {
+                if (settled || destroyed) {
+                  return;
+                }
+                settled = true;
+                reject(err || new Error("mse failed"));
+              }
+
+              try {
+                mse = new MediaSource();
+                objectURL = window.URL.createObjectURL(mse);
+                player.srcObject = null;
+                player.src = objectURL;
+              } catch (err) {
+                doneReject(err);
+                return;
+              }
+
+              mse.addEventListener("sourceopen", function () {
+                const wsProtocol = location.protocol === "https:" ? "wss" : "ws";
+                const wsURL = wsProtocol + "://" + location.host +
+                  "/stream/" + encodeURIComponent(payload.uuid) +
+                  "/channel/" + encodeURIComponent(payload.channel) +
+                  "/mse?uuid=" + encodeURIComponent(payload.uuid) +
+                  "&channel=" + encodeURIComponent(payload.channel) +
+                  "&share_token=" + encodeURIComponent(payload.share_token);
+
+                try {
+                  ws = new WebSocket(wsURL);
+                } catch (err) {
+                  doneReject(err);
+                  return;
+                }
+
+                ws.binaryType = "arraybuffer";
+                ws.onopen = function () {
+                  doneResolve();
+                };
+                ws.onerror = function () {
+                  doneReject(new Error("mse websocket error"));
+                };
+                ws.onclose = function () {
+                  if (!destroyed && !settled) {
+                    doneReject(new Error("mse websocket closed"));
+                  }
+                };
+                ws.onmessage = function (event) {
+                  const data = new Uint8Array(event.data);
+                  if (data.length === 0) {
+                    return;
+                  }
+                  if (data[0] === 9) {
+                    const decodedArr = data.slice(1);
+                    let mimeCodec = "";
+                    if (window.TextDecoder) {
+                      mimeCodec = new TextDecoder("utf-8").decode(decodedArr);
+                    }
+                    if (!mimeCodec) {
+                      doneReject(new Error("mse codec metadata empty"));
+                      return;
+                    }
+                    try {
+                      sourceBuffer = mse.addSourceBuffer('video/mp4; codecs="' + mimeCodec + '"');
+                      sourceBuffer.mode = "segments";
+                      sourceBuffer.addEventListener("updateend", pushPacket);
+                    } catch (err) {
+                      doneReject(err);
+                    }
+                    return;
+                  }
+                  try {
+                    readPacket(event.data);
+                  } catch (err) {
+                    doneReject(err);
+                  }
+                };
+              }, { once: true });
+            });
+          },
+          destroy: function () {
+            destroyed = true;
+            if (sourceBuffer) {
+              try {
+                sourceBuffer.removeEventListener("updateend", pushPacket);
+              } catch (_) { }
+            }
+            sourceBuffer = null;
+            queue = [];
+            if (ws) {
+              try {
+                ws.onclose = null;
+                ws.close(1000, "stop share player");
+              } catch (_) { }
+              ws = null;
+            }
+            if (mse) {
+              try {
+                if (mse.readyState === "open") {
+                  mse.endOfStream();
+                }
+              } catch (_) { }
+              mse = null;
+            }
+            if (objectURL) {
+              try {
+                window.URL.revokeObjectURL(objectURL);
+              } catch (_) { }
+              objectURL = "";
+            }
+          }
+        };
+      }
+
+      function createHLSEngine(payload) {
+        let hls = null;
+        return {
+          start: function () {
+            return new Promise(function (resolve, reject) {
+              const url = "/stream/" + encodeURIComponent(payload.uuid) +
+                "/channel/" + encodeURIComponent(payload.channel) +
+                "/hls/live/index.m3u8?share_token=" + encodeURIComponent(payload.share_token);
+
+              if (player.canPlayType("application/vnd.apple.mpegurl")) {
+                player.srcObject = null;
+                player.src = url;
+                player.addEventListener("loadedmetadata", function () {
+                  safePlay();
+                  resolve();
+                }, { once: true });
+                player.addEventListener("error", function () {
+                  reject(new Error("hls native error"));
+                }, { once: true });
+                player.load();
+                return;
+              }
+
+              if (!window.Hls || !Hls.isSupported()) {
+                reject(new Error(t("hls_not_supported")));
+                return;
+              }
+
+              hls = new Hls({ manifestLoadingTimeOut: 60000 });
+              hls.on(Hls.Events.MANIFEST_PARSED, function () {
+                safePlay();
+                resolve();
+              });
+              hls.on(Hls.Events.ERROR, function (_, data) {
+                if (data && data.fatal) {
+                  reject(new Error("hls fatal error"));
+                }
+              });
+              hls.loadSource(url);
+              hls.attachMedia(player);
+            });
+          },
+          destroy: function () {
+            if (hls) {
+              try {
+                hls.destroy();
+              } catch (_) { }
+              hls = null;
+            }
+          }
+        };
+      }
+
+      function createWebRTCEngine(payload) {
+        let peer = null;
+        let stream = null;
+        let destroyed = false;
+
+        return {
+          start: async function () {
+            stream = new MediaStream();
+            player.src = "";
+            player.srcObject = stream;
+
+            peer = new RTCPeerConnection({
+              iceServers: [{ urls: ["stun:stun.l.google.com:19302"] }],
+              sdpSemantics: "unified-plan"
+            });
+
+            peer.ontrack = function (event) {
+              if (event.track) {
+                stream.addTrack(event.track);
+              }
+              safePlay();
+            };
+
+            try {
+              peer.addTransceiver("video", { direction: "sendrecv" });
+              peer.addTransceiver("audio", { direction: "sendrecv" });
+            } catch (_) { }
+
+            const offer = await peer.createOffer({
+              offerToReceiveAudio: true,
+              offerToReceiveVideo: true
+            });
+            await peer.setLocalDescription(offer);
+
+            const endpoint = "/stream/" + encodeURIComponent(payload.uuid) +
+              "/channel/" + encodeURIComponent(payload.channel) +
+              "/webrtc?uuid=" + encodeURIComponent(payload.uuid) +
+              "&channel=" + encodeURIComponent(payload.channel) +
+              "&share_token=" + encodeURIComponent(payload.share_token);
+
+            const response = await fetch(endpoint, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"
+              },
+              body: "data=" + encodeURIComponent(btoa(peer.localDescription.sdp))
+            });
+            const rawAnswer = await response.text();
+            if (!response.ok) {
+              throw new Error(rawAnswer || ("webrtc http " + response.status));
+            }
+
+            const trimmed = rawAnswer.trim();
+            if (trimmed.startsWith("{")) {
+              let parsed = null;
+              try {
+                parsed = JSON.parse(trimmed);
+              } catch (_) {
+                parsed = null;
+              }
+              if (parsed && parsed.status === 0) {
+                throw new Error(parsed.payload || "webrtc failed");
+              }
+            }
+
+            await peer.setRemoteDescription(new RTCSessionDescription({
+              type: "answer",
+              sdp: atob(trimmed)
+            }));
+            if (!destroyed) {
+              safePlay();
+            }
+          },
+          destroy: function () {
+            destroyed = true;
+            if (peer) {
+              try {
+                peer.ontrack = null;
+                peer.close();
+              } catch (_) { }
+              peer = null;
+            }
+            if (stream) {
+              stream.getTracks().forEach(function (track) {
+                try {
+                  track.stop();
+                } catch (_) { }
+              });
+              stream = null;
+            }
+          }
+        };
+      }
+
+      function createEngine(protocol, payload) {
+        if (protocol === PROTOCOL.MSE) {
+          return createMSEEngine(payload);
+        }
+        if (protocol === PROTOCOL.WEBRTC) {
+          return createWebRTCEngine(payload);
+        }
+        return createHLSEngine(payload);
+      }
+
+      async function startConcreteProtocol(protocol, payload) {
+        destroyCurrentEngine();
+        setState(t("share_try_protocol") + " " + protocolLabel(protocol), "info");
+        currentEngine = createEngine(protocol, payload);
+        await currentEngine.start();
+        safePlay();
+        await waitForRenderableVideo(12000);
+        setState(t("playing") + " · " + protocolLabel(protocol), "success");
+      }
+
+      function preferredProtocolOrder() {
+        const ua = navigator.userAgent || "";
+        const uaLower = ua.toLowerCase();
+        const isIOS = /iphone|ipad|ipod/.test(uaLower);
+        const isSafari = /safari/.test(uaLower) && !/chrome|crios|fxios|edg|opr|opera|android/.test(uaLower);
+
+        if (isIOS) {
+          return [PROTOCOL.WEBRTC, PROTOCOL.HLS];
+        }
+        if (isSafari) {
+          return [PROTOCOL.HLS, PROTOCOL.WEBRTC, PROTOCOL.MSE];
+        }
+        return [PROTOCOL.MSE, PROTOCOL.WEBRTC, PROTOCOL.HLS];
+      }
+
+      async function startAutoPlayback(payload) {
+        currentMode = PROTOCOL.AUTO;
+        setProtocolButtons(PROTOCOL.AUTO);
+        const order = preferredProtocolOrder();
+        let lastErr = null;
+        for (let i = 0; i < order.length; i++) {
+          const protocol = order[i];
+          try {
+            await startConcreteProtocol(protocol, payload);
+            return;
+          } catch (err) {
+            lastErr = err;
+            console.warn("share auto fallback", protocol, err);
+          }
+        }
+        const message = lastErr && lastErr.message ? lastErr.message : t("share_playback_failed");
+        showError(t("share_playback_failed") + " (" + normalizeError(message) + ")");
+      }
+
+      async function startByMode(mode) {
+        if (!sharePayload) {
+          return;
+        }
+        if (mode === PROTOCOL.AUTO) {
+          await startAutoPlayback(sharePayload);
+          return;
+        }
+        currentMode = mode;
+        setProtocolButtons(mode);
+        await startConcreteProtocol(mode, sharePayload);
       }
 
       function startHeartbeat() {
@@ -67,8 +594,10 @@
                 clearInterval(heartbeatTimer);
                 heartbeatTimer = null;
               }
-              setState(t("share_expired"));
-              $("#shareVideoPlayer")[0].pause();
+              setState(t("share_expired"), "danger");
+              try {
+                player.pause();
+              } catch (_) { }
             }
           });
         }, 15000);
@@ -86,30 +615,21 @@
         });
       }
 
-      function startPlayer(uuid, channel, token) {
-        const player = $("#shareVideoPlayer")[0];
-        const url = "/stream/" + uuid + "/channel/" + channel + "/hls/live/index.m3u8?share_token=" + encodeURIComponent(token);
-        if (player.canPlayType("application/vnd.apple.mpegurl")) {
-          player.src = url;
-          player.play().catch(function () {});
-          setState(t("playing"));
-          return;
+      function cleanupPage() {
+        stopSession();
+        destroyCurrentEngine();
+        if (heartbeatTimer) {
+          clearInterval(heartbeatTimer);
+          heartbeatTimer = null;
         }
-        if (!Hls.isSupported()) {
-          showError(t("hls_not_supported"));
-          return;
-        }
-        hls = new Hls({ manifestLoadingTimeOut: 60000 });
-        hls.loadSource(url);
-        hls.attachMedia(player);
-        hls.on(Hls.Events.MANIFEST_PARSED, function () {
-          player.play().catch(function () {});
-          setState(t("playing"));
-        });
-        hls.on(Hls.Events.ERROR, function () {
-          setState(t("error"));
-        });
       }
+
+      $(".share-protocol-btn").on("click", function () {
+        const mode = $(this).data("protocol");
+        startByMode(mode).catch(function (err) {
+          showError(err && err.message ? err.message : t("share_failed"));
+        });
+      });
 
       $.ajax({
         url: "/share/" + shareId + "/session/start",
@@ -119,14 +639,22 @@
         success: function (resp) {
           const payload = resp.payload || {};
           viewerId = payload.viewer_id || "";
-          streamToken = payload.share_token || "";
-          $("#shareExpireAt").text(t("share_expire_at") + " " + new Date((payload.expires_at || 0) * 1000).toLocaleString());
-          if (!viewerId || !streamToken) {
+          if (!viewerId || !payload.share_token) {
             showError(t("share_failed"));
             return;
           }
+          sharePayload = {
+            uuid: payload.uuid,
+            channel: payload.channel,
+            share_token: payload.share_token
+          };
+          $("#shareExpireAt").text(
+            t("share_expire_at") + " " + new Date((payload.expires_at || 0) * 1000).toLocaleString()
+          );
           startHeartbeat();
-          startPlayer(payload.uuid, payload.channel, streamToken);
+          startAutoPlayback(sharePayload).catch(function (err) {
+            showError(err && err.message ? err.message : t("share_failed"));
+          });
         },
         error: function (xhr) {
           const msg = (xhr.responseJSON && xhr.responseJSON.payload) ? xhr.responseJSON.payload : t("share_failed");
@@ -134,13 +662,8 @@
         }
       });
 
-      window.addEventListener("beforeunload", function () {
-        stopSession();
-        if (hls) {
-          hls.destroy();
-          hls = null;
-        }
-      });
+      window.addEventListener("beforeunload", cleanupPage);
+      window.addEventListener("pagehide", cleanupPage);
     })();
   </script>
 </body>
