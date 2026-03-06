@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Shared Stream</title>
+  <link rel="icon" href="/../static/img/lens.svg">
+  <link rel="stylesheet" href="/../static/plugins/bootstrap/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/../static/plugins/sweetalert2/sweetalert2.min.css">
+  <link rel="stylesheet" href="/../static/css/index.css">
+</head>
+
+<body class="bg-dark">
+  <div class="container-fluid p-0">
+    <div class="share-watch-header px-3 py-2 text-white d-flex justify-content-between align-items-center">
+      <div>
+        <strong data-i18n="share_watch_title">分享视频</strong>
+        <span class="ml-2 small text-warning" id="shareExpireAt"></span>
+      </div>
+      <span class="badge badge-info" id="shareState" data-i18n="loading">加载中</span>
+    </div>
+    <video id="shareVideoPlayer" class="w-100" controls autoplay playsinline></video>
+  </div>
+
+  <script src="/../static/plugins/jquery/jquery.min.js"></script>
+  <script src="/../static/plugins/sweetalert2/sweetalert2.min.js"></script>
+  <script src="/../static/plugins/hlsjs/hls.min.js"></script>
+  <script src="/../static/js/i18n.js"></script>
+  <script>
+    (function () {
+      window.serverUiLang = '{{ .ui_lang }}';
+      applyI18n();
+      const shareId = "{{ .share_id }}";
+      const password = "{{ .share_password }}";
+      let viewerId = "";
+      let heartbeatTimer = null;
+      let streamToken = "";
+      let hls = null;
+
+      function setState(text) {
+        $("#shareState").text(text);
+      }
+
+      function showError(text) {
+        setState(t("error"));
+        Swal.fire({
+          icon: "error",
+          title: t("error"),
+          text: text,
+          confirmButtonText: t("ok")
+        });
+      }
+
+      function startHeartbeat() {
+        if (heartbeatTimer) {
+          clearInterval(heartbeatTimer);
+        }
+        heartbeatTimer = setInterval(function () {
+          $.ajax({
+            url: "/share/" + shareId + "/session/heartbeat",
+            type: "POST",
+            contentType: "application/json",
+            data: JSON.stringify({ viewer_id: viewerId }),
+            error: function () {
+              if (heartbeatTimer) {
+                clearInterval(heartbeatTimer);
+                heartbeatTimer = null;
+              }
+              setState(t("share_expired"));
+              $("#shareVideoPlayer")[0].pause();
+            }
+          });
+        }, 15000);
+      }
+
+      function stopSession() {
+        if (!viewerId) {
+          return;
+        }
+        fetch("/share/" + shareId + "/session/stop", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ viewer_id: viewerId }),
+          keepalive: true
+        });
+      }
+
+      function startPlayer(uuid, channel, token) {
+        const player = $("#shareVideoPlayer")[0];
+        const url = "/stream/" + uuid + "/channel/" + channel + "/hls/live/index.m3u8?share_token=" + encodeURIComponent(token);
+        if (player.canPlayType("application/vnd.apple.mpegurl")) {
+          player.src = url;
+          player.play().catch(function () {});
+          setState(t("playing"));
+          return;
+        }
+        if (!Hls.isSupported()) {
+          showError(t("hls_not_supported"));
+          return;
+        }
+        hls = new Hls({ manifestLoadingTimeOut: 60000 });
+        hls.loadSource(url);
+        hls.attachMedia(player);
+        hls.on(Hls.Events.MANIFEST_PARSED, function () {
+          player.play().catch(function () {});
+          setState(t("playing"));
+        });
+        hls.on(Hls.Events.ERROR, function () {
+          setState(t("error"));
+        });
+      }
+
+      $.ajax({
+        url: "/share/" + shareId + "/session/start",
+        type: "POST",
+        contentType: "application/json",
+        data: JSON.stringify({ password: password }),
+        success: function (resp) {
+          const payload = resp.payload || {};
+          viewerId = payload.viewer_id || "";
+          streamToken = payload.share_token || "";
+          $("#shareExpireAt").text(t("share_expire_at") + " " + new Date((payload.expires_at || 0) * 1000).toLocaleString());
+          if (!viewerId || !streamToken) {
+            showError(t("share_failed"));
+            return;
+          }
+          startHeartbeat();
+          startPlayer(payload.uuid, payload.channel, streamToken);
+        },
+        error: function (xhr) {
+          const msg = (xhr.responseJSON && xhr.responseJSON.payload) ? xhr.responseJSON.payload : t("share_failed");
+          showError(msg);
+        }
+      });
+
+      window.addEventListener("beforeunload", function () {
+        stopSession();
+        if (hls) {
+          hls.destroy();
+          hls = null;
+        }
+      });
+    })();
+  </script>
+</body>
+
+</html>

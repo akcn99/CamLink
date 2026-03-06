@@ -1,0 +1,202 @@
+{{template "head.tmpl" .}}
+<div class="content-header">
+  <div class="container-fluid">
+    <div class="row mb-2">
+      <div class="col-sm-6">
+        <h1 class="m-0 text-dark" data-i18n="settings_title">全局设置</h1>
+      </div>
+      <div class="col-sm-6">
+        <ol class="breadcrumb float-sm-right">
+          <li class="breadcrumb-item"><a href="/" data-i18n="nav_home">首页</a></li>
+          <li class="breadcrumb-item active" data-i18n="settings_title">全局设置</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="content">
+  <div class="container-fluid">
+    <div class="row">
+      <div class="col-12 col-lg-7">
+        <div class="card card-outline card-primary">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="settings_general">通用设置</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label data-i18n="settings_lang">界面语言</label>
+              <select id="uiLanguage" class="form-control">
+                <option value="zh-CN">中文</option>
+                <option value="en-US">English</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_login">管理员账号</label>
+              <input id="adminLogin" class="form-control" type="text">
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_session_ttl">会话有效期(分钟)</label>
+              <input id="sessionTtl" class="form-control" type="number" min="10" max="10080">
+            </div>
+          </div>
+        </div>
+
+        <div class="card card-outline card-success">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="settings_recording">录像设置</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label data-i18n="settings_record_path">录像保存路径</label>
+              <input id="recordPath" class="form-control" type="text">
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_record_format">格式</label>
+              <select id="recordFormat" class="form-control">
+                <option value="mp4">MP4</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_record_rule">命名规则</label>
+              <select id="recordRule" class="form-control">
+                <option value="stream_channel_timestamp">stream_channel_时间戳</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_record_max">单次最大录像时长(分钟)</label>
+              <input id="recordMaxDuration" class="form-control" type="number" min="1" max="1440">
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_resolution">分辨率(预留)</label>
+              <input id="recordResolution" class="form-control" type="text" placeholder="source">
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_codec">视频编码(预留)</label>
+              <input id="recordCodec" class="form-control" type="text" placeholder="source">
+            </div>
+          </div>
+        </div>
+
+        <div class="card card-outline card-info">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="settings_share">分享默认设置</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label data-i18n="settings_share_expire">默认有效时间(分钟)</label>
+              <input id="shareExpire" class="form-control" type="number" min="1" max="1440">
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_share_conn">默认最大连接数(1-5)</label>
+              <input id="shareMaxConn" class="form-control" type="number" min="1" max="5">
+            </div>
+          </div>
+        </div>
+
+        <button id="saveGlobalSettings" class="btn btn-primary mb-4" data-i18n="save">保存</button>
+      </div>
+
+      <div class="col-12 col-lg-5">
+        <div class="card card-outline card-danger">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="settings_security">安全设置</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label data-i18n="settings_old_password">旧密码</label>
+              <input id="oldPassword" class="form-control" type="password">
+            </div>
+            <div class="form-group">
+              <label data-i18n="settings_new_password">新密码</label>
+              <input id="newPassword" class="form-control" type="password">
+            </div>
+            <button id="updateAdminPassword" class="btn btn-danger" data-i18n="settings_update_password">修改管理员密码</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+{{template "foot.tmpl" .}}
+<script>
+  $(document).ready(function () {
+    loadGlobalSettings();
+  });
+
+  function loadGlobalSettings() {
+    $.get("/settings/global", function (resp) {
+      if (!resp || resp.status !== 1) {
+        return;
+      }
+      const s = resp.payload || {};
+      $("#uiLanguage").val(s.ui_language_default || "zh-CN");
+      $("#adminLogin").val(s.http_login || "");
+      $("#sessionTtl").val(s.session_ttl_minutes || 720);
+      const r = s.recording || {};
+      $("#recordPath").val(r.save_path || "save");
+      $("#recordFormat").val(r.format || "mp4");
+      $("#recordRule").val(r.filename_rule || "stream_channel_timestamp");
+      $("#recordMaxDuration").val(r.max_duration_minutes || 60);
+      $("#recordResolution").val(r.resolution || "source");
+      $("#recordCodec").val(r.video_codec || "source");
+      const share = s.share || {};
+      $("#shareExpire").val(share.default_expire_minutes || 60);
+      $("#shareMaxConn").val(share.default_max_connections || 1);
+    });
+  }
+
+  $("#saveGlobalSettings").on("click", function () {
+    const body = {
+      ui_language_default: $("#uiLanguage").val(),
+      http_login: $("#adminLogin").val(),
+      session_ttl_minutes: parseInt($("#sessionTtl").val(), 10) || 720,
+      recording: {
+        save_path: $("#recordPath").val(),
+        format: $("#recordFormat").val(),
+        filename_rule: $("#recordRule").val(),
+        max_duration_minutes: parseInt($("#recordMaxDuration").val(), 10) || 60,
+        resolution: $("#recordResolution").val(),
+        video_codec: $("#recordCodec").val()
+      },
+      share: {
+        default_expire_minutes: parseInt($("#shareExpire").val(), 10) || 60,
+        default_max_connections: parseInt($("#shareMaxConn").val(), 10) || 1
+      }
+    };
+    $.ajax({
+      url: "/settings/global",
+      type: "POST",
+      contentType: "application/json",
+      data: JSON.stringify(body),
+      success: function () {
+        setUILang($("#uiLanguage").val());
+        applyI18n();
+        Swal.fire({ icon: "success", title: t("saved"), confirmButtonText: t("ok") });
+      },
+      error: function (xhr) {
+        Swal.fire({ icon: "error", title: t("error"), text: (xhr.responseJSON && xhr.responseJSON.payload) || t("save_failed"), confirmButtonText: t("ok") });
+      }
+    });
+  });
+
+  $("#updateAdminPassword").on("click", function () {
+    $.ajax({
+      url: "/settings/admin/password",
+      type: "POST",
+      contentType: "application/json",
+      data: JSON.stringify({
+        old_password: $("#oldPassword").val(),
+        new_password: $("#newPassword").val()
+      }),
+      success: function () {
+        $("#oldPassword").val("");
+        $("#newPassword").val("");
+        Swal.fire({ icon: "success", title: t("saved"), confirmButtonText: t("ok") });
+      },
+      error: function (xhr) {
+        Swal.fire({ icon: "error", title: t("error"), text: (xhr.responseJSON && xhr.responseJSON.payload) || t("save_failed"), confirmButtonText: t("ok") });
+      }
+    });
+  });
+</script>

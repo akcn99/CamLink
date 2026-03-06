@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RTSPtoWEB Login</title>
+  <link rel="icon" href="/../static/img/lens.svg">
+  <link rel="stylesheet" href="/../static/plugins/bootstrap/css/bootstrap.min.css">
+  <link rel="stylesheet" href="/../static/plugins/fontawesome-free/css/all.min.css">
+  <link rel="stylesheet" href="/../static/css/index.css">
+</head>
+
+<body class="bg-light">
+  <div class="container min-vh-100 d-flex align-items-center justify-content-center">
+    <div class="card shadow-sm" style="max-width: 420px; width: 100%;">
+      <div class="card-body p-4">
+        <h3 class="mb-3 text-center" data-i18n="login_title">管理登录</h3>
+        <p class="text-muted text-center mb-4" data-i18n="login_desc">登录后可访问 RTSPtoWEB 管理后台</p>
+        <div class="form-group">
+          <label for="loginUsername" data-i18n="login_user">用户名</label>
+          <input id="loginUsername" class="form-control" type="text" autocomplete="username" />
+        </div>
+        <div class="form-group">
+          <label for="loginPassword" data-i18n="login_pass">密码</label>
+          <input id="loginPassword" class="form-control" type="password" autocomplete="current-password" />
+        </div>
+        <button id="loginSubmit" class="btn btn-primary btn-block" type="button" data-i18n="login_btn">登录</button>
+        <div class="text-center mt-3">
+          <a href="#" id="toggleLang" class="small">English</a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/../static/plugins/jquery/jquery.min.js"></script>
+  <script src="/../static/plugins/sweetalert2/sweetalert2.min.js"></script>
+  <script src="/../static/js/i18n.js"></script>
+  <script>
+    (function () {
+      window.serverUiLang = '{{ .ui_lang }}';
+      applyI18n();
+      $("#toggleLang").on("click", function (e) {
+        e.preventDefault();
+        const current = getUILang();
+        setUILang(current === "zh-CN" ? "en-US" : "zh-CN");
+        applyI18n();
+        $("#toggleLang").text(current === "zh-CN" ? "中文" : "English");
+      });
+      $("#toggleLang").text(getUILang() === "zh-CN" ? "English" : "中文");
+
+      function submitLogin() {
+        const nextUrl = new URLSearchParams(window.location.search).get("next") || "/";
+        $.ajax({
+          url: "/api/auth/login",
+          type: "POST",
+          contentType: "application/json",
+          data: JSON.stringify({
+            username: $("#loginUsername").val(),
+            password: $("#loginPassword").val()
+          }),
+          success: function () {
+            window.location.href = nextUrl;
+          },
+          error: function (xhr) {
+            Swal.fire({
+              icon: "error",
+              title: t("login_fail_title"),
+              text: (xhr.responseJSON && xhr.responseJSON.payload) ? xhr.responseJSON.payload : t("login_fail"),
+              confirmButtonText: t("ok")
+            });
+          }
+        });
+      }
+
+      $("#loginSubmit").on("click", submitLogin);
+      $("#loginPassword").on("keypress", function (e) {
+        if (e.key === "Enter") {
+          submitLogin();
+        }
+      });
+    })();
+  </script>
+</body>
+
+</html>
