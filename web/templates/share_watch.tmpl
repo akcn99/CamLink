@@ -85,6 +85,14 @@
       let currentEngine = null;
       let currentMode = PROTOCOL.AUTO;
 
+      function isIOSUserAgent(ua) {
+        const lower = String(ua || "").toLowerCase();
+        if (/iphone|ipad|ipod/.test(lower)) {
+          return true;
+        }
+        return lower.indexOf("macintosh") >= 0 && lower.indexOf("mobile") >= 0;
+      }
+
       function protocolLabel(protocol) {
         switch (protocol) {
           case PROTOCOL.MSE:
@@ -370,9 +378,13 @@
         return {
           start: function () {
             return new Promise(function (resolve, reject) {
-              const url = "/stream/" + encodeURIComponent(payload.uuid) +
-                "/channel/" + encodeURIComponent(payload.channel) +
-                "/hls/live/index.m3u8?share_token=" + encodeURIComponent(payload.share_token);
+              const streamBase = "/stream/" + encodeURIComponent(payload.uuid) +
+                "/channel/" + encodeURIComponent(payload.channel);
+              const playlistPath = isIOSUserAgent(navigator.userAgent || "") ?
+                "/hlsll/live/index.m3u8" :
+                "/hls/live/index.m3u8";
+              const url = streamBase + playlistPath +
+                "?share_token=" + encodeURIComponent(payload.share_token);
 
               if (player.canPlayType("application/vnd.apple.mpegurl")) {
                 player.srcObject = null;
@@ -535,11 +547,11 @@
       function preferredProtocolOrder() {
         const ua = navigator.userAgent || "";
         const uaLower = ua.toLowerCase();
-        const isIOS = /iphone|ipad|ipod/.test(uaLower);
+        const isIOS = isIOSUserAgent(ua);
         const isSafari = /safari/.test(uaLower) && !/chrome|crios|fxios|edg|opr|opera|android/.test(uaLower);
 
         if (isIOS) {
-          return [PROTOCOL.WEBRTC, PROTOCOL.HLS];
+          return [PROTOCOL.HLS, PROTOCOL.WEBRTC];
         }
         if (isSafari) {
           return [PROTOCOL.HLS, PROTOCOL.WEBRTC, PROTOCOL.MSE];
