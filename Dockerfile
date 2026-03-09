@@ -20,9 +20,9 @@ COPY --from=builder /go/src/app/rtsp-to-web /app/
 COPY --from=builder /go/src/app/web /app/web
 
 RUN mkdir -p /config
-COPY --from=builder /go/src/app/config.json /config
+COPY --from=builder /go/src/app/config.example.json /config/config.example.json
 
 ENV GO111MODULE="on"
 ENV GIN_MODE="release"
 
-CMD ["./rtsp-to-web", "--config=/config/config.json"]
+CMD ["sh", "-c", "if [ -f /config/config.json ]; then exec ./rtsp-to-web --config=/config/config.json; else exec ./rtsp-to-web --config=/config/config.example.json; fi"]

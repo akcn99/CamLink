@@ -1,0 +1,56 @@
+{
+  "channel_defaults": {
+    "audio": true
+  },
+  "server": {
+    "debug": true,
+    "http_auth": false,
+    "http_debug": false,
+    "http_demo": true,
+    "http_dir": "web",
+    "http_login": "admin",
+    "http_password": "",
+    "http_port": ":8083",
+    "https": false,
+    "https_auto_tls": false,
+    "https_auto_tls_name": "",
+    "https_cert": "server.crt",
+    "https_key": "server.key",
+    "https_port": ":443",
+    "ice_candidates": [],
+    "ice_credential": "",
+    "ice_servers": [
+      "stun:stun.l.google.com:19302"
+    ],
+    "ice_username": "",
+    "log_level": "debug",
+    "recording": {
+      "filename_rule": "stream_channel_timestamp",
+      "format": "mp4",
+      "max_duration_minutes": 60,
+      "resolution": "source",
+      "save_path": "save",
+      "video_codec": "source"
+    },
+    "rtsp_port": ":5541",
+    "session_ttl_minutes": 720,
+    "share": {
+      "default_expire_minutes": 60,
+      "default_max_connections": 1,
+      "sign_secret": ""
+    },
+    "token": {
+      "backend": "http://127.0.0.1/test.php",
+      "enable": false
+    },
+    "ui_language_default": "zh-CN",
+    "webrtc_port_max": 0,
+    "webrtc_port_min": 0,
+    "detection": {
+      "detector_url": "http://camlink-detector:8091",
+      "events_db_path": "save/detection-events.db",
+      "export_dir": "save/reports"
+    }
+  },
+  "streams": {}
+}

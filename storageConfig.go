@@ -5,14 +5,12 @@ import (
 	"flag"
 	"io/ioutil"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/hashicorp/go-version"
-
 	"github.com/imdario/mergo"
-
 	"github.com/liip/sheriff"
-
 	"github.com/sirupsen/logrus"
 )
 
@@ -23,8 +21,9 @@ var configFile string
 // NewStreamCore do load config file
 func NewStreamCore() *StorageST {
 	flag.BoolVar(&debug, "debug", true, "set debug mode")
-	flag.StringVar(&configFile, "config", "config.json", "config patch (/etc/server/config.json or config.json)")
+	flag.StringVar(&configFile, "config", "", "config path (default: config.local.json, fallback to config.json or config.example.json)")
 	flag.Parse()
+	configFile = resolveConfigPath(configFile)
 
 	var tmp StorageST
 	data, err := ioutil.ReadFile(configFile)
@@ -70,6 +69,20 @@ func NewStreamCore() *StorageST {
 		tmp.Streams[i] = i2
 	}
 	return &tmp
+}
+
+func resolveConfigPath(path string) string {
+	path = strings.TrimSpace(path)
+	if path != "" {
+		return path
+	}
+	candidates := []string{"config.local.json", "config.json", "config.example.json"}
+	for _, candidate := range candidates {
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+	}
+	return "config.local.json"
 }
 
 func applyServerDefaults(server *ServerST) {

@@ -83,10 +83,34 @@ func HTTPAPIGetDetectionConfig(c *gin.Context) {
 		"stream_uuid": c.Param("uuid"),
 		"stream_name": info.Name,
 		"channel_id":  c.Param("channel"),
-		"stream_url":  channel.URL,
+		"stream_url":  maskSensitiveStreamURL(channel.URL),
 		"on_demand":   channel.OnDemand,
 		"detection":   detection,
 	}})
+}
+
+func maskSensitiveStreamURL(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	if parsed.User == nil {
+		return raw
+	}
+	username := parsed.User.Username()
+	if username == "" {
+		return raw
+	}
+	if _, ok := parsed.User.Password(); ok {
+		parsed.User = url.UserPassword(username, "***")
+		return parsed.String()
+	}
+	parsed.User = url.User(username)
+	return parsed.String()
 }
 
 func HTTPAPIUpdateDetectionConfig(c *gin.Context) {
