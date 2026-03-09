@@ -11,7 +11,9 @@ import (
 	"github.com/deepch/vdk/av"
 )
 
-//MuxerHLS struct
+const hlsSegmentRetention = 18
+
+// MuxerHLS struct
 type MuxerHLS struct {
 	mutex             sync.RWMutex
 	UUID              string             //Current UUID
@@ -26,7 +28,7 @@ type MuxerHLS struct {
 	FragmentCancel    context.CancelFunc //chan 1-N
 }
 
-//NewHLSMuxer Segments
+// NewHLSMuxer Segments
 func NewHLSMuxer(uuid string) *MuxerHLS {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &MuxerHLS{
@@ -38,12 +40,12 @@ func NewHLSMuxer(uuid string) *MuxerHLS {
 	}
 }
 
-//SetFPS func
+// SetFPS func
 func (element *MuxerHLS) SetFPS(fps int) {
 	element.FPS = fps
 }
 
-//WritePacket func
+// WritePacket func
 func (element *MuxerHLS) WritePacket(packet *av.Packet) {
 	element.mutex.Lock()
 	defer element.mutex.Unlock()
@@ -56,8 +58,8 @@ func (element *MuxerHLS) WritePacket(packet *av.Packet) {
 	if packet.IsKeyFrame && (element.CurrentSegment == nil || element.CurrentSegment.GetDuration().Seconds() >= 4) {
 		if element.CurrentSegment != nil {
 			element.CurrentSegment.Close()
-			if len(element.Segments) > 6 {
-				delete(element.Segments, element.MSN-6)
+			if len(element.Segments) > hlsSegmentRetention {
+				delete(element.Segments, element.MSN-hlsSegmentRetention)
 				element.MediaSequence++
 			}
 		}
@@ -72,7 +74,7 @@ func (element *MuxerHLS) WritePacket(packet *av.Packet) {
 	element.CurrentFragmentID = CurrentFragmentID
 }
 
-//UpdateIndexM3u8 func
+// UpdateIndexM3u8 func
 func (element *MuxerHLS) UpdateIndexM3u8() {
 	var header string
 	var body string
@@ -111,13 +113,13 @@ func (element *MuxerHLS) UpdateIndexM3u8() {
 	element.PlaylistUpdate()
 }
 
-//PlaylistUpdate func
+// PlaylistUpdate func
 func (element *MuxerHLS) PlaylistUpdate() {
 	element.FragmentCancel()
 	element.FragmentCtx, element.FragmentCancel = context.WithCancel(context.Background())
 }
 
-//GetSegment func
+// GetSegment func
 func (element *MuxerHLS) GetSegment(segment int) ([]*av.Packet, error) {
 	element.mutex.Lock()
 	defer element.mutex.Unlock()
@@ -131,7 +133,7 @@ func (element *MuxerHLS) GetSegment(segment int) ([]*av.Packet, error) {
 	return nil, ErrorStreamNotFound
 }
 
-//GetFragment func
+// GetFragment func
 func (element *MuxerHLS) GetFragment(segment int, fragment int) ([]*av.Packet, error) {
 	element.mutex.Lock()
 	if segmentTmp, segmentTmpOK := element.Segments[segment]; segmentTmpOK {
@@ -153,7 +155,7 @@ func (element *MuxerHLS) GetFragment(segment int, fragment int) ([]*av.Packet, e
 	return nil, ErrorStreamNotFound
 }
 
-//GetIndexM3u8 func
+// GetIndexM3u8 func
 func (element *MuxerHLS) GetIndexM3u8(needMSN int, needPart int) (string, error) {
 	element.mutex.Lock()
 	if len(element.CacheM3U8) != 0 && ((needMSN == -1 || needPart == -1) || (needMSN-element.MSN > 1) || (needMSN == element.MSN && needPart < element.CurrentFragmentID)) {
@@ -169,7 +171,7 @@ func (element *MuxerHLS) GetIndexM3u8(needMSN int, needPart int) (string, error)
 	}
 }
 
-//WaitFragment func
+// WaitFragment func
 func (element *MuxerHLS) WaitFragment(timeOut time.Duration, segment, fragment int) ([]*av.Packet, error) {
 	select {
 	case <-time.After(timeOut):
@@ -188,7 +190,7 @@ func (element *MuxerHLS) WaitFragment(timeOut time.Duration, segment, fragment i
 	}
 }
 
-//WaitIndex func
+// WaitIndex func
 func (element *MuxerHLS) WaitIndex(timeOut time.Duration, segment, fragment int) (string, error) {
 	for {
 		select {
@@ -207,7 +209,7 @@ func (element *MuxerHLS) WaitIndex(timeOut time.Duration, segment, fragment int)
 	}
 }
 
-//SortFragment func
+// SortFragment func
 func (element *MuxerHLS) SortFragment(val map[int]*Fragment) []int {
 	keys := make([]int, len(val))
 	i := 0
@@ -219,7 +221,7 @@ func (element *MuxerHLS) SortFragment(val map[int]*Fragment) []int {
 	return keys
 }
 
-//SortSegments fuc
+// SortSegments fuc
 func (element *MuxerHLS) SortSegments(val map[int]*Segment) []int {
 	keys := make([]int, len(val))
 	i := 0

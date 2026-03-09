@@ -6,6 +6,7 @@ HTTP_PORT ?= 8083
 RTSP_PORT ?= 5541
 CONFIG_PATH ?= $(CURDIR)/config.json
 SAVE_PATH ?= $(CURDIR)/save
+COMPOSE ?= docker compose
 
 P="\\033[34m[+]\\033[0m"
 
@@ -69,6 +70,22 @@ docker-test:
 	$(MAKE) docker-smoke
 	$(MAKE) docker-stop
 
+compose-up:
+	@echo "$(P) compose up"
+	$(COMPOSE) up -d --build
+
+compose-up-local:
+	@echo "$(P) compose up local ports"
+	CAMLINK_HTTP_PORT=$${CAMLINK_HTTP_PORT:-18083} CAMLINK_RTSP_PORT=$${CAMLINK_RTSP_PORT:-15541} CAMLINK_DETECTOR_HOST_PORT=$${CAMLINK_DETECTOR_HOST_PORT:-18091} $(COMPOSE) up -d --build
+
+compose-down:
+	@echo "$(P) compose down"
+	$(COMPOSE) down
+
+compose-logs:
+	@echo "$(P) compose logs"
+	$(COMPOSE) logs -f camlink-app camlink-detector
+
 .NOTPARALLEL:
 
-.PHONY: build run server test lint docker-build docker-run docker-stop docker-logs docker-smoke docker-test
+.PHONY: build run server test lint docker-build docker-run docker-stop docker-logs docker-smoke docker-test compose-up compose-up-local compose-down compose-logs

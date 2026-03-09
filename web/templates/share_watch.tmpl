@@ -155,6 +155,11 @@
         }
       }
 
+      function withReloadMarker(url) {
+        const sep = url.indexOf("?") >= 0 ? "&" : "?";
+        return url + sep + "_reload=" + Date.now();
+      }
+
       function clearPlayerElement() {
         try {
           player.pause();
@@ -375,6 +380,151 @@
 
       function createHLSEngine(payload) {
         let hls = null;
+        let destroyed = false;
+        let nativeSourceURL = "";
+        let nativeWatchdogTimer = null;
+        let nativeStallTimer = null;
+        let nativeLastCurrentTime = 0;
+        let nativeLastProgressAt = 0;
+        let nativeRecovering = false;
+        let nativeProgressHandler = null;
+        let nativePlayingHandler = null;
+        let nativeWaitingHandler = null;
+        let nativeStalledHandler = null;
+        let nativeErrorHandler = null;
+        let nativeCanPlayHandler = null;
+        let nativeLoadedDataHandler = null;
+
+        function clearNativeTimers() {
+          if (nativeWatchdogTimer) {
+            clearInterval(nativeWatchdogTimer);
+            nativeWatchdogTimer = null;
+          }
+          if (nativeStallTimer) {
+            clearTimeout(nativeStallTimer);
+            nativeStallTimer = null;
+          }
+        }
+
+        function markNativeProgress() {
+          const currentTime = Number(player.currentTime || 0);
+          if (Math.abs(currentTime - nativeLastCurrentTime) > 0.01 || player.readyState >= 3) {
+            nativeLastCurrentTime = currentTime;
+            nativeLastProgressAt = Date.now();
+          }
+          if (nativeStallTimer) {
+            clearTimeout(nativeStallTimer);
+            nativeStallTimer = null;
+          }
+        }
+
+        function scheduleNativeRecovery(reason, delayMs) {
+          if (destroyed || nativeRecovering || nativeStallTimer) {
+            return;
+          }
+          nativeStallTimer = setTimeout(function () {
+            nativeStallTimer = null;
+            recoverNativePlayback(reason);
+          }, delayMs);
+        }
+
+        function recoverNativePlayback(reason) {
+          if (destroyed || nativeRecovering || !nativeSourceURL) {
+            return;
+          }
+          nativeRecovering = true;
+          nativeLastProgressAt = Date.now();
+          console.warn("share native hls recover", reason);
+          setState(t("loading") + " · " + protocolLabel(PROTOCOL.HLS), "warning");
+          try {
+            player.pause();
+          } catch (_) { }
+          try {
+            player.srcObject = null;
+            player.src = withReloadMarker(nativeSourceURL);
+            player.load();
+          } catch (_) { }
+          safePlay();
+          setTimeout(function () {
+            if (!destroyed) {
+              nativeRecovering = false;
+            }
+          }, 3000);
+        }
+
+        function bindNativeEvents() {
+          if (nativeProgressHandler) {
+            return;
+          }
+          nativeProgressHandler = function () {
+            markNativeProgress();
+          };
+          nativePlayingHandler = function () {
+            nativeRecovering = false;
+            markNativeProgress();
+            setState(t("playing") + " · " + protocolLabel(PROTOCOL.HLS), "success");
+          };
+          nativeWaitingHandler = function () {
+            scheduleNativeRecovery("waiting", 6000);
+          };
+          nativeStalledHandler = function () {
+            scheduleNativeRecovery("stalled", 2500);
+          };
+          nativeErrorHandler = function () {
+            scheduleNativeRecovery("error", 1000);
+          };
+          nativeCanPlayHandler = function () {
+            markNativeProgress();
+          };
+          nativeLoadedDataHandler = function () {
+            markNativeProgress();
+          };
+          player.addEventListener("timeupdate", nativeProgressHandler);
+          player.addEventListener("playing", nativePlayingHandler);
+          player.addEventListener("waiting", nativeWaitingHandler);
+          player.addEventListener("stalled", nativeStalledHandler);
+          player.addEventListener("error", nativeErrorHandler);
+          player.addEventListener("canplay", nativeCanPlayHandler);
+          player.addEventListener("loadeddata", nativeLoadedDataHandler);
+          nativeLastCurrentTime = Number(player.currentTime || 0);
+          nativeLastProgressAt = Date.now();
+          nativeWatchdogTimer = setInterval(function () {
+            if (destroyed || document.hidden || player.paused || player.ended) {
+              return;
+            }
+            const currentTime = Number(player.currentTime || 0);
+            if (Math.abs(currentTime - nativeLastCurrentTime) > 0.01) {
+              nativeLastCurrentTime = currentTime;
+              nativeLastProgressAt = Date.now();
+              return;
+            }
+            if (Date.now() - nativeLastProgressAt >= 12000) {
+              recoverNativePlayback("watchdog");
+            }
+          }, 3000);
+        }
+
+        function unbindNativeEvents() {
+          clearNativeTimers();
+          if (!nativeProgressHandler) {
+            return;
+          }
+          player.removeEventListener("timeupdate", nativeProgressHandler);
+          player.removeEventListener("playing", nativePlayingHandler);
+          player.removeEventListener("waiting", nativeWaitingHandler);
+          player.removeEventListener("stalled", nativeStalledHandler);
+          player.removeEventListener("error", nativeErrorHandler);
+          player.removeEventListener("canplay", nativeCanPlayHandler);
+          player.removeEventListener("loadeddata", nativeLoadedDataHandler);
+          nativeProgressHandler = null;
+          nativePlayingHandler = null;
+          nativeWaitingHandler = null;
+          nativeStalledHandler = null;
+          nativeErrorHandler = null;
+          nativeCanPlayHandler = null;
+          nativeLoadedDataHandler = null;
+        }
+
         return {
           start: function () {
             return new Promise(function (resolve, reject) {
@@ -385,17 +535,26 @@
                 "/hls/live/index.m3u8";
               const url = streamBase + playlistPath +
                 "?share_token=" + encodeURIComponent(payload.share_token);
+              nativeSourceURL = url;
 
               if (player.canPlayType("application/vnd.apple.mpegurl")) {
-                player.srcObject = null;
-                player.src = url;
-                player.addEventListener("loadedmetadata", function () {
+                function onLoadedMetadata() {
+                  player.removeEventListener("error", onInitialError);
+                  bindNativeEvents();
+                  markNativeProgress();
                   safePlay();
                   resolve();
-                }, { once: true });
-                player.addEventListener("error", function () {
+                }
+
+                function onInitialError() {
+                  player.removeEventListener("loadedmetadata", onLoadedMetadata);
                   reject(new Error("hls native error"));
-                }, { once: true });
+                }
+
+                player.srcObject = null;
+                player.src = withReloadMarker(nativeSourceURL);
+                player.addEventListener("loadedmetadata", onLoadedMetadata, { once: true });
+                player.addEventListener("error", onInitialError, { once: true });
                 player.load();
                 return;
               }
@@ -420,6 +579,8 @@
             });
           },
           destroy: function () {
+            destroyed = true;
+            unbindNativeEvents();
             if (hls) {
               try {
                 hls.destroy();

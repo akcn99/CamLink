@@ -14,6 +14,17 @@ func main() {
 		"module": "main",
 		"func":   "main",
 	}).Info("Server CORE start")
+	if err := DetectionEvents.Init(Storage.ServerDetection().EventsDBPath, Storage.ServerDetection().ExportDir); err != nil {
+		log.WithFields(logrus.Fields{
+			"module": "main",
+			"func":   "main",
+			"call":   "DetectionEvents.Init",
+		}).Fatalln(err.Error())
+		os.Exit(1)
+	}
+	defer func() {
+		_ = DetectionEvents.Close()
+	}()
 	go HTTPAPIServer()
 	go RTSPServer()
 	go Storage.StreamChannelRunAll()

@@ -75,6 +75,16 @@
                 <p><span data-i18n="nav_settings">全局设置</span></p>
               </a>
             </li>
+            <li class="nav-item">
+              <a href="/pages/detection" class="nav-link
+              {{ if eq .page "detection"}}
+                active
+              {{end}}
+              ">
+                <i class="nav-icon fas fa-car-side"></i>
+                <p><span data-i18n="nav_detection">车辆检测</span></p>
+              </a>
+            </li>
             <li class="nav-header" data-i18n="nav_navigation">导航</li>
             <li class="nav-item ">
               <a href="/pages/stream/list" class="nav-link {{ if  (eq .page "stream_list") }}

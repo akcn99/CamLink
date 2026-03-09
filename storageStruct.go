@@ -63,35 +63,36 @@ type StorageST struct {
 
 // ServerST server storage section
 type ServerST struct {
-	Debug              bool         `json:"debug" groups:"api,config"`
-	LogLevel           logrus.Level `json:"log_level" groups:"api,config"`
-	HTTPDemo           bool         `json:"http_demo" groups:"api,config"`
-	HTTPDebug          bool         `json:"http_debug" groups:"api,config"`
-	HTTPLogin          string       `json:"http_login" groups:"api,config"`
-	HTTPPassword       string       `json:"http_password" groups:"api,config"`
-	HTTPAuth           bool         `json:"http_auth" groups:"api,config"`
-	HTTPDir            string       `json:"http_dir" groups:"api,config"`
-	HTTPPort           string       `json:"http_port" groups:"api,config"`
-	PublicBaseURL      string       `json:"public_base_url,omitempty" groups:"api,config"`
-	RTSPPort           string       `json:"rtsp_port" groups:"api,config"`
-	HTTPS              bool         `json:"https" groups:"api,config"`
-	HTTPSPort          string       `json:"https_port" groups:"api,config"`
-	HTTPSCert          string       `json:"https_cert" groups:"api,config"`
-	HTTPSKey           string       `json:"https_key" groups:"api,config"`
-	HTTPSAutoTLSEnable bool         `json:"https_auto_tls" groups:"api,config"`
-	HTTPSAutoTLSName   string       `json:"https_auto_tls_name" groups:"api,config"`
-	ICEServers         []string     `json:"ice_servers" groups:"api,config"`
-	ICEUsername        string       `json:"ice_username" groups:"api,config"`
-	ICECredential      string       `json:"ice_credential" groups:"api,config"`
-	ICECandidates      []string     `json:"ice_candidates" groups:"api,config"`
-	Token              Token        `json:"token,omitempty" groups:"api,config"`
-	WebRTCPortMin      uint16       `json:"webrtc_port_min" groups:"api,config"`
-	WebRTCPortMax      uint16       `json:"webrtc_port_max" groups:"api,config"`
-	UILanguageDefault  string       `json:"ui_language_default,omitempty" groups:"api,config"`
-	Recording          RecordingST  `json:"recording,omitempty" groups:"api,config"`
-	Share              ShareST      `json:"share,omitempty" groups:"api,config"`
-	AdminPasswordHash  string       `json:"admin_password_hash,omitempty" groups:"api,config"`
-	SessionTTLMinutes  int          `json:"session_ttl_minutes,omitempty" groups:"api,config"`
+	Debug              bool              `json:"debug" groups:"api,config"`
+	LogLevel           logrus.Level      `json:"log_level" groups:"api,config"`
+	HTTPDemo           bool              `json:"http_demo" groups:"api,config"`
+	HTTPDebug          bool              `json:"http_debug" groups:"api,config"`
+	HTTPLogin          string            `json:"http_login" groups:"api,config"`
+	HTTPPassword       string            `json:"http_password" groups:"api,config"`
+	HTTPAuth           bool              `json:"http_auth" groups:"api,config"`
+	HTTPDir            string            `json:"http_dir" groups:"api,config"`
+	HTTPPort           string            `json:"http_port" groups:"api,config"`
+	PublicBaseURL      string            `json:"public_base_url,omitempty" groups:"api,config"`
+	RTSPPort           string            `json:"rtsp_port" groups:"api,config"`
+	HTTPS              bool              `json:"https" groups:"api,config"`
+	HTTPSPort          string            `json:"https_port" groups:"api,config"`
+	HTTPSCert          string            `json:"https_cert" groups:"api,config"`
+	HTTPSKey           string            `json:"https_key" groups:"api,config"`
+	HTTPSAutoTLSEnable bool              `json:"https_auto_tls" groups:"api,config"`
+	HTTPSAutoTLSName   string            `json:"https_auto_tls_name" groups:"api,config"`
+	ICEServers         []string          `json:"ice_servers" groups:"api,config"`
+	ICEUsername        string            `json:"ice_username" groups:"api,config"`
+	ICECredential      string            `json:"ice_credential" groups:"api,config"`
+	ICECandidates      []string          `json:"ice_candidates" groups:"api,config"`
+	Token              Token             `json:"token,omitempty" groups:"api,config"`
+	WebRTCPortMin      uint16            `json:"webrtc_port_min" groups:"api,config"`
+	WebRTCPortMax      uint16            `json:"webrtc_port_max" groups:"api,config"`
+	UILanguageDefault  string            `json:"ui_language_default,omitempty" groups:"api,config"`
+	Recording          RecordingST       `json:"recording,omitempty" groups:"api,config"`
+	Share              ShareST           `json:"share,omitempty" groups:"api,config"`
+	Detection          DetectionServerST `json:"detection,omitempty" groups:"api,config"`
+	AdminPasswordHash  string            `json:"admin_password_hash,omitempty" groups:"api,config"`
+	SessionTTLMinutes  int               `json:"session_ttl_minutes,omitempty" groups:"api,config"`
 }
 
 // Token auth
@@ -110,9 +111,43 @@ type RecordingST struct {
 }
 
 type ShareST struct {
-	SignSecret           string `json:"sign_secret,omitempty" groups:"api,config"`
-	DefaultExpireMinutes int    `json:"default_expire_minutes,omitempty" groups:"api,config"`
-	DefaultMaxConnections int   `json:"default_max_connections,omitempty" groups:"api,config"`
+	SignSecret            string `json:"sign_secret,omitempty" groups:"api,config"`
+	DefaultExpireMinutes  int    `json:"default_expire_minutes,omitempty" groups:"api,config"`
+	DefaultMaxConnections int    `json:"default_max_connections,omitempty" groups:"api,config"`
+}
+
+type DetectionServerST struct {
+	DetectorURL  string `json:"detector_url,omitempty" groups:"api,config"`
+	EventsDBPath string `json:"events_db_path,omitempty" groups:"api,config"`
+	ExportDir    string `json:"export_dir,omitempty" groups:"api,config"`
+}
+
+type DetectionPointST struct {
+	X int `json:"x" groups:"api,config"`
+	Y int `json:"y" groups:"api,config"`
+}
+
+type DetectionChannelST struct {
+	Enabled                  bool               `json:"enabled,omitempty" groups:"api,config"`
+	Mode                     string             `json:"mode,omitempty" groups:"api,config"`
+	SampleFPS                int                `json:"sample_fps,omitempty" groups:"api,config"`
+	CooldownSeconds          int                `json:"cooldown_seconds,omitempty" groups:"api,config"`
+	Classes                  []string           `json:"classes,omitempty" groups:"api,config"`
+	Polygon                  []DetectionPointST `json:"polygon,omitempty" groups:"api,config"`
+	TriggerConsecutiveFrames int                `json:"trigger_consecutive_frames,omitempty" groups:"api,config"`
+	TelegramEnabled          bool               `json:"telegram_enabled,omitempty" groups:"api,config"`
+	TelegramChatID           string             `json:"telegram_chat_id,omitempty" groups:"api,config"`
+}
+
+type DetectionEventST struct {
+	EventID      string    `json:"event_id"`
+	StreamUUID   string    `json:"stream_uuid"`
+	StreamName   string    `json:"stream_name"`
+	ChannelID    string    `json:"channel_id"`
+	ObjectClass  string    `json:"object_class"`
+	TrackID      string    `json:"track_id,omitempty"`
+	EnteredAt    time.Time `json:"entered_at"`
+	SnapshotPath string    `json:"snapshot_path,omitempty"`
 }
 
 // ServerST stream storage section
@@ -122,13 +157,14 @@ type StreamST struct {
 }
 
 type ChannelST struct {
-	Name               string `json:"name,omitempty" groups:"api,config"`
-	URL                string `json:"url,omitempty" groups:"api,config"`
-	OnDemand           bool   `json:"on_demand,omitempty" groups:"api,config"`
-	Debug              bool   `json:"debug,omitempty" groups:"api,config"`
-	Status             int    `json:"status,omitempty" groups:"api"`
-	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty" groups:"api,config"`
-	Audio              bool   `json:"audio,omitempty" groups:"api,config"`
+	Name               string             `json:"name,omitempty" groups:"api,config"`
+	URL                string             `json:"url,omitempty" groups:"api,config"`
+	OnDemand           bool               `json:"on_demand,omitempty" groups:"api,config"`
+	Debug              bool               `json:"debug,omitempty" groups:"api,config"`
+	Status             int                `json:"status,omitempty" groups:"api"`
+	InsecureSkipVerify bool               `json:"insecure_skip_verify,omitempty" groups:"api,config"`
+	Audio              bool               `json:"audio,omitempty" groups:"api,config"`
+	Detection          DetectionChannelST `json:"detection,omitempty" groups:"api,config"`
 	runLock            bool
 	codecs             []av.CodecData
 	sdp                []byte

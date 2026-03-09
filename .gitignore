@@ -1,2 +1,7 @@
 .idea/
 RTSPtoWeb
+.env
+services/detector/__pycache__/
+
+.DS_Store
+save/

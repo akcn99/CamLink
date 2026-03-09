@@ -20,7 +20,7 @@ import (
 var debug bool
 var configFile string
 
-//NewStreamCore do load config file
+// NewStreamCore do load config file
 func NewStreamCore() *StorageST {
 	flag.BoolVar(&debug, "debug", true, "set debug mode")
 	flag.StringVar(&configFile, "config", "config.json", "config patch (/etc/server/config.json or config.json)")
@@ -112,6 +112,15 @@ func applyServerDefaults(server *ServerST) {
 	if server.Share.SignSecret == "" {
 		server.Share.SignSecret = randomAlphaNum(32)
 	}
+	if server.Detection.DetectorURL == "" {
+		server.Detection.DetectorURL = "http://camlink-detector:8091"
+	}
+	if server.Detection.EventsDBPath == "" {
+		server.Detection.EventsDBPath = "save/detection-events.db"
+	}
+	if server.Detection.ExportDir == "" {
+		server.Detection.ExportDir = "save/reports"
+	}
 	if server.HTTPLogin == "" {
 		server.HTTPLogin = "admin"
 	}
@@ -135,9 +144,24 @@ func applyChannelDefaults(channel *ChannelST) {
 	if !channel.Audio {
 		channel.Audio = true
 	}
+	if channel.Detection.Mode == "" {
+		channel.Detection.Mode = "vehicle_entry"
+	}
+	if channel.Detection.SampleFPS <= 0 {
+		channel.Detection.SampleFPS = 1
+	}
+	if channel.Detection.CooldownSeconds <= 0 {
+		channel.Detection.CooldownSeconds = 30
+	}
+	if len(channel.Detection.Classes) == 0 {
+		channel.Detection.Classes = []string{"car", "motorcycle", "bicycle"}
+	}
+	if channel.Detection.TriggerConsecutiveFrames <= 0 {
+		channel.Detection.TriggerConsecutiveFrames = 2
+	}
 }
 
-//ClientDelete Delete Client
+// ClientDelete Delete Client
 func (obj *StorageST) SaveConfig() error {
 	log.WithFields(logrus.Fields{
 		"module": "config",

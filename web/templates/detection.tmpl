@@ -1,0 +1,513 @@
+{{template "head.tmpl" .}}
+<div class="content-header">
+  <div class="container-fluid">
+    <div class="row mb-2">
+      <div class="col-sm-6">
+        <h1 class="m-0 text-dark" data-i18n="detection_title">车辆驶入检测</h1>
+      </div>
+      <div class="col-sm-6">
+        <ol class="breadcrumb float-sm-right">
+          <li class="breadcrumb-item"><a href="/" data-i18n="nav_home">首页</a></li>
+          <li class="breadcrumb-item active" data-i18n="detection_title">车辆驶入检测</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="content">
+  <div class="container-fluid">
+    <div class="alert alert-info" data-i18n="detection_note">第一阶段先完成配置、服务联通、事件查询骨架；真实画区和目标检测将在后续阶段接入。</div>
+    <div class="row">
+      <div class="col-12 col-lg-5">
+        <div class="card card-outline card-primary">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="detection_global">检测服务设置</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-group">
+              <label data-i18n="detection_service_url">检测服务地址</label>
+              <input id="detectorUrl" class="form-control" type="text" placeholder="http://camlink-detector:8091">
+            </div>
+            <div class="form-group">
+              <label data-i18n="detection_events_db">事件数据库路径(预留)</label>
+              <input id="eventsDbPath" class="form-control" type="text" placeholder="save/detection-events.db">
+            </div>
+            <div class="form-group">
+              <label data-i18n="detection_export_dir">报表导出目录</label>
+              <input id="exportDir" class="form-control" type="text" placeholder="save/reports">
+            </div>
+            <button id="saveDetectionSettings" class="btn btn-primary" data-i18n="detection_save_service">保存检测设置</button>
+          </div>
+        </div>
+
+        <div class="card card-outline card-info">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h3 class="card-title mb-0" data-i18n="detection_service_status">服务状态</h3>
+            <button id="refreshDetectorStatus" class="btn btn-outline-info btn-sm" data-i18n="detection_status_refresh">刷新状态</button>
+          </div>
+          <div class="card-body">
+            <div class="mb-2"><strong>URL:</strong> <span id="detectorStatusUrl">-</span></div>
+            <div class="mb-2"><strong>Status:</strong> <span id="detectorStatusBadge" class="badge badge-secondary">unknown</span></div>
+            <div class="mb-2"><strong data-i18n="detection_event_store">事件库</strong>: <span id="detectorStoreBadge" class="badge badge-secondary">unknown</span></div>
+            <div class="small text-muted mb-1" id="detectorStatusMessage">-</div>
+            <div class="small text-muted" id="detectorStorePath">-</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="col-12 col-lg-7">
+        <div class="card card-outline card-warning">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="detection_rules">检测规则</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-row">
+              <div class="form-group col-md-6">
+                <label data-i18n="detection_target_stream">目标摄像头</label>
+                <select id="targetStream" class="form-control"></select>
+              </div>
+              <div class="form-group col-md-6">
+                <label data-i18n="detection_target_channel">目标通道</label>
+                <select id="targetChannel" class="form-control"></select>
+              </div>
+            </div>
+            <div class="form-group">
+              <label data-i18n="detection_stream_url">RTSP 地址</label>
+              <input id="targetStreamUrl" class="form-control" type="text" readonly>
+            </div>
+            <div class="form-group">
+              <label data-i18n="detection_mode">检测模式</label>
+              <select id="detectionMode" class="form-control">
+                <option value="vehicle_entry">vehicle_entry</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <div class="custom-control custom-switch">
+                <input type="checkbox" class="custom-control-input" id="detectionEnabled">
+                <label class="custom-control-label" for="detectionEnabled" data-i18n="detection_enabled">启用车辆驶入检测</label>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group col-md-4">
+                <label data-i18n="detection_sample_fps">检测帧率(每秒帧数)</label>
+                <input id="sampleFps" class="form-control" type="number" min="1" max="5" value="1">
+              </div>
+              <div class="form-group col-md-4">
+                <label data-i18n="detection_cooldown">告警冷却时间(秒)</label>
+                <input id="cooldownSeconds" class="form-control" type="number" min="1" max="3600" value="30">
+              </div>
+              <div class="form-group col-md-4">
+                <label data-i18n="detection_consecutive">进入判定连续帧数</label>
+                <input id="consecutiveFrames" class="form-control" type="number" min="1" max="10" value="2">
+              </div>
+            </div>
+            <div class="form-group">
+              <label data-i18n="detection_classes">检测类别</label>
+              <div class="d-flex flex-wrap">
+                <div class="custom-control custom-checkbox mr-3">
+                  <input class="custom-control-input detection-class" type="checkbox" id="classCar" value="car" checked>
+                  <label class="custom-control-label" for="classCar">car</label>
+                </div>
+                <div class="custom-control custom-checkbox mr-3">
+                  <input class="custom-control-input detection-class" type="checkbox" id="classMotorcycle" value="motorcycle" checked>
+                  <label class="custom-control-label" for="classMotorcycle">motorcycle</label>
+                </div>
+                <div class="custom-control custom-checkbox mr-3">
+                  <input class="custom-control-input detection-class" type="checkbox" id="classBicycle" value="bicycle" checked>
+                  <label class="custom-control-label" for="classBicycle">bicycle</label>
+                </div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label data-i18n="detection_polygon">检测区域多边形(JSON)</label>
+              <textarea id="polygonJson" class="form-control" rows="5" placeholder='[{"x":120,"y":80},{"x":580,"y":90},{"x":620,"y":410}]'></textarea>
+              <small class="form-text text-muted" data-i18n="detection_polygon_help">Phase 2 将接入鼠标画区，当前先使用 JSON 点位数组。</small>
+            </div>
+            <div class="form-group">
+              <div class="custom-control custom-switch">
+                <input type="checkbox" class="custom-control-input" id="telegramEnabled">
+                <label class="custom-control-label" for="telegramEnabled" data-i18n="detection_telegram">Telegram 通知</label>
+              </div>
+            </div>
+            <div class="form-group">
+              <label data-i18n="detection_telegram_chat">Telegram Chat ID</label>
+              <input id="telegramChatId" class="form-control" type="text" placeholder="123456789">
+            </div>
+            <div class="d-flex flex-wrap">
+              <button id="saveDetectionRules" class="btn btn-warning mr-2 mb-2" data-i18n="detection_save_rules">保存规则</button>
+              <button id="mockDetectionEvent" class="btn btn-outline-secondary mb-2" data-i18n="detection_mock_event">写入测试事件</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="col-12">
+        <div class="card card-outline card-success">
+          <div class="card-header">
+            <h3 class="card-title" data-i18n="detection_stats">统计与报表</h3>
+          </div>
+          <div class="card-body">
+            <div class="form-row align-items-end">
+              <div class="form-group col-md-3">
+                <label data-i18n="detection_target_stream">目标摄像头</label>
+                <select id="queryStream" class="form-control"></select>
+              </div>
+              <div class="form-group col-md-2">
+                <label data-i18n="detection_target_channel">目标通道</label>
+                <select id="queryChannel" class="form-control"></select>
+              </div>
+              <div class="form-group col-md-2">
+                <label data-i18n="detection_object_class">目标类别</label>
+                <select id="queryClass" class="form-control">
+                  <option value="">ALL</option>
+                  <option value="car">car</option>
+                  <option value="motorcycle">motorcycle</option>
+                  <option value="bicycle">bicycle</option>
+                </select>
+              </div>
+              <div class="form-group col-md-2">
+                <label>Start</label>
+                <input id="queryStart" class="form-control" type="datetime-local">
+              </div>
+              <div class="form-group col-md-2">
+                <label>End</label>
+                <input id="queryEnd" class="form-control" type="datetime-local">
+              </div>
+              <div class="form-group col-md-1 text-right">
+                <button id="queryDetectionEvents" class="btn btn-success btn-block" data-i18n="detection_query">查询事件</button>
+              </div>
+            </div>
+            <div class="d-flex flex-wrap justify-content-between align-items-center mb-3">
+              <div><strong data-i18n="detection_events_total">事件总数</strong>: <span id="eventsTotal">0</span></div>
+              <button id="exportDetectionEvents" class="btn btn-outline-success" data-i18n="detection_export">导出 CSV</button>
+            </div>
+            <div class="table-responsive">
+              <table class="table table-bordered table-hover">
+                <thead>
+                  <tr>
+                    <th data-i18n="detection_entered_at">进入时间</th>
+                    <th data-i18n="detection_target_stream">目标摄像头</th>
+                    <th data-i18n="detection_target_channel">目标通道</th>
+                    <th data-i18n="detection_object_class">目标类别</th>
+                    <th data-i18n="detection_track_id">轨迹ID</th>
+                    <th data-i18n="detection_snapshot">截图</th>
+                  </tr>
+                </thead>
+                <tbody id="eventsTableBody">
+                  <tr><td colspan="6" class="text-center text-muted" data-i18n="detection_empty">当前时间段没有检测事件</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{{template "foot.tmpl" .}}
+<script>
+  const initialStreamUUID = '{{ .initial_uuid }}';
+  const initialChannelID = '{{ .initial_channel }}';
+  let detectionOverview = [];
+
+  $(document).ready(function () {
+    loadDetectionSettings();
+    loadDetectionOverview();
+    refreshDetectorStatus();
+    bindDetectionActions();
+  });
+
+  function bindDetectionActions() {
+    $("#refreshDetectorStatus").on("click", refreshDetectorStatus);
+    $("#saveDetectionSettings").on("click", saveDetectionSettings);
+    $("#saveDetectionRules").on("click", saveDetectionRules);
+    $("#targetStream").on("change", function () {
+      fillChannelSelectors($("#targetChannel"), $(this).val(), "0");
+      loadSelectedDetectionConfig();
+    });
+    $("#targetChannel").on("change", loadSelectedDetectionConfig);
+    $("#queryStream").on("change", function () {
+      fillChannelSelectors($("#queryChannel"), $(this).val(), "0");
+    });
+    $("#queryDetectionEvents").on("click", loadDetectionEvents);
+    $("#exportDetectionEvents").on("click", exportDetectionEvents);
+    $("#mockDetectionEvent").on("click", createMockDetectionEvent);
+  }
+
+  function loadDetectionSettings() {
+    $.get("/detection/settings/global", function (resp) {
+      if (!resp || resp.status !== 1) {
+        return;
+      }
+      const s = resp.payload || {};
+      $("#detectorUrl").val(s.detector_url || "");
+      $("#eventsDbPath").val(s.events_db_path || "");
+      $("#exportDir").val(s.export_dir || "");
+    });
+  }
+
+  function saveDetectionSettings() {
+    const body = {
+      detector_url: $("#detectorUrl").val().trim(),
+      events_db_path: $("#eventsDbPath").val().trim(),
+      export_dir: $("#exportDir").val().trim()
+    };
+    $.ajax({
+      url: "/detection/settings/global",
+      type: "POST",
+      contentType: "application/json",
+      data: JSON.stringify(body),
+      success: function () {
+        Swal.fire({ icon: "success", title: t("saved"), confirmButtonText: t("ok") });
+        refreshDetectorStatus();
+      },
+      error: function (xhr) {
+        Swal.fire({ icon: "error", title: t("error"), text: (xhr.responseJSON && xhr.responseJSON.payload) || t("save_failed"), confirmButtonText: t("ok") });
+      }
+    });
+  }
+
+  function loadDetectionOverview() {
+    $.get("/detection/overview", function (resp) {
+      if (!resp || resp.status !== 1) {
+        return;
+      }
+      detectionOverview = resp.payload || [];
+      fillTargetSelectors();
+      loadSelectedDetectionConfig();
+      loadDetectionEvents();
+    });
+  }
+
+  function fillTargetSelectors() {
+    const streamSelect = $("#targetStream");
+    const channelSelect = $("#targetChannel");
+    const queryStream = $("#queryStream");
+    const queryChannel = $("#queryChannel");
+    streamSelect.empty();
+    queryStream.empty();
+
+    const streamMap = {};
+    detectionOverview.forEach(function (item) {
+      if (!streamMap[item.stream_uuid]) {
+        streamMap[item.stream_uuid] = item.stream_name || item.stream_uuid;
+      }
+    });
+
+    Object.keys(streamMap).forEach(function (uuid) {
+      const label = streamMap[uuid];
+      streamSelect.append('<option value="' + uuid + '">' + label + ' (' + uuid + ')</option>');
+      queryStream.append('<option value="' + uuid + '">' + label + ' (' + uuid + ')</option>');
+    });
+
+    if (initialStreamUUID && streamMap[initialStreamUUID]) {
+      streamSelect.val(initialStreamUUID);
+      queryStream.val(initialStreamUUID);
+    }
+    fillChannelSelectors(channelSelect, streamSelect.val(), initialChannelID);
+    fillChannelSelectors(queryChannel, queryStream.val(), initialChannelID);
+  }
+
+  function fillChannelSelectors(selectEl, streamUUID, preferredChannel) {
+    selectEl.empty();
+    detectionOverview.filter(function (item) {
+      return item.stream_uuid === streamUUID;
+    }).forEach(function (item) {
+      selectEl.append('<option value="' + item.channel_id + '">Channel ' + item.channel_id + '</option>');
+    });
+    if (preferredChannel) {
+      selectEl.val(preferredChannel);
+    }
+  }
+
+  function currentOverviewItem() {
+    const uuid = $("#targetStream").val();
+    const channel = $("#targetChannel").val();
+    return detectionOverview.find(function (item) {
+      return item.stream_uuid === uuid && item.channel_id === channel;
+    }) || null;
+  }
+
+  function loadSelectedDetectionConfig() {
+    const uuid = $("#targetStream").val();
+    const channel = $("#targetChannel").val();
+    if (!uuid || !channel) {
+      return;
+    }
+    $.get('/detection/config/' + encodeURIComponent(uuid) + '/' + encodeURIComponent(channel), function (resp) {
+      if (!resp || resp.status !== 1) {
+        return;
+      }
+      const payload = resp.payload || {};
+      const detection = payload.detection || {};
+      $("#targetStreamUrl").val(payload.stream_url || "");
+      $("#detectionMode").val(detection.mode || "vehicle_entry");
+      $("#detectionEnabled").prop("checked", !!detection.enabled);
+      $("#sampleFps").val(detection.sample_fps || 1);
+      $("#cooldownSeconds").val(detection.cooldown_seconds || 30);
+      $("#consecutiveFrames").val(detection.trigger_consecutive_frames || 2);
+      $("#telegramEnabled").prop("checked", !!detection.telegram_enabled);
+      $("#telegramChatId").val(detection.telegram_chat_id || "");
+      $("#polygonJson").val(JSON.stringify(detection.polygon || [], null, 2));
+      const classes = detection.classes || [];
+      $(".detection-class").each(function () {
+        $(this).prop("checked", classes.indexOf($(this).val()) >= 0);
+      });
+      $("#queryStream").val(uuid);
+      fillChannelSelectors($("#queryChannel"), uuid, channel);
+    });
+  }
+
+  function saveDetectionRules() {
+    const uuid = $("#targetStream").val();
+    const channel = $("#targetChannel").val();
+    if (!uuid || !channel) {
+      return;
+    }
+    let polygon = [];
+    const polygonText = $("#polygonJson").val().trim();
+    if (polygonText) {
+      try {
+        polygon = JSON.parse(polygonText);
+      } catch (err) {
+        Swal.fire({ icon: "error", title: t("error"), text: "Polygon JSON 格式不正确", confirmButtonText: t("ok") });
+        return;
+      }
+    }
+    const body = {
+      enabled: $("#detectionEnabled").prop("checked"),
+      mode: $("#detectionMode").val(),
+      sample_fps: parseInt($("#sampleFps").val(), 10) || 1,
+      cooldown_seconds: parseInt($("#cooldownSeconds").val(), 10) || 30,
+      classes: $(".detection-class:checked").map(function () { return $(this).val(); }).get(),
+      polygon: polygon,
+      trigger_consecutive_frames: parseInt($("#consecutiveFrames").val(), 10) || 2,
+      telegram_enabled: $("#telegramEnabled").prop("checked"),
+      telegram_chat_id: $("#telegramChatId").val().trim()
+    };
+    $.ajax({
+      url: '/detection/config/' + encodeURIComponent(uuid) + '/' + encodeURIComponent(channel),
+      type: 'POST',
+      contentType: 'application/json',
+      data: JSON.stringify(body),
+      success: function () {
+        Swal.fire({ icon: 'success', title: t('saved'), confirmButtonText: t('ok') });
+        loadDetectionOverview();
+      },
+      error: function (xhr) {
+        Swal.fire({ icon: 'error', title: t('error'), text: (xhr.responseJSON && xhr.responseJSON.payload) || t('save_failed'), confirmButtonText: t('ok') });
+      }
+    });
+  }
+
+  function createMockDetectionEvent() {
+    const uuid = $("#targetStream").val();
+    const channel = $("#targetChannel").val();
+    if (!uuid || !channel) {
+      return;
+    }
+    $.ajax({
+      url: '/detection/events/mock/' + encodeURIComponent(uuid) + '/' + encodeURIComponent(channel),
+      type: 'POST',
+      success: function () {
+        Swal.fire({ icon: 'success', title: t('saved'), text: t('detection_mock_success'), confirmButtonText: t('ok') });
+        $("#queryStream").val(uuid);
+        fillChannelSelectors($("#queryChannel"), uuid, channel);
+        loadDetectionEvents();
+        refreshDetectorStatus();
+      },
+      error: function (xhr) {
+        Swal.fire({ icon: 'error', title: t('error'), text: (xhr.responseJSON && xhr.responseJSON.payload) || t('save_failed'), confirmButtonText: t('ok') });
+      }
+    });
+  }
+
+  function refreshDetectorStatus() {
+    $.get('/detection/service/status', function (resp) {
+      if (!resp || resp.status !== 1) {
+        return;
+      }
+      const payload = resp.payload || {};
+      $('#detectorStatusUrl').text(payload.configured_url || '-');
+      const badge = $('#detectorStatusBadge');
+      badge.removeClass('badge-success badge-danger badge-secondary');
+      if (payload.reachable) {
+        badge.addClass('badge-success').text('online');
+      } else if (payload.configured_url) {
+        badge.addClass('badge-danger').text('offline');
+      } else {
+        badge.addClass('badge-secondary').text('not-configured');
+      }
+      $('#detectorStatusMessage').text(payload.message || '-');
+
+      const store = payload.event_store || {};
+      const storeBadge = $('#detectorStoreBadge');
+      storeBadge.removeClass('badge-success badge-danger badge-secondary');
+      if (store.ready) {
+        storeBadge.addClass('badge-success').text('ready');
+      } else if (store.db_path) {
+        storeBadge.addClass('badge-danger').text('error');
+      } else {
+        storeBadge.addClass('badge-secondary').text('not-configured');
+      }
+      const pathText = store.db_path ? ('DB: ' + store.db_path + ' | Export: ' + (store.export_dir || '-')) : '-';
+      $('#detectorStorePath').text(pathText);
+    });
+  }
+
+  function toISOStringFromLocalInput(value) {
+    if (!value) {
+      return '';
+    }
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return value;
+    }
+    return date.toISOString();
+  }
+
+  function buildEventQuery() {
+    return {
+      stream_uuid: $('#queryStream').val() || '',
+      channel_id: $('#queryChannel').val() || '',
+      object_class: $('#queryClass').val() || '',
+      start: toISOStringFromLocalInput($('#queryStart').val() || ''),
+      end: toISOStringFromLocalInput($('#queryEnd').val() || '')
+    };
+  }
+
+  function loadDetectionEvents() {
+    $.get('/detection/events', buildEventQuery(), function (resp) {
+      if (!resp || resp.status !== 1) {
+        return;
+      }
+      const payload = resp.payload || {};
+      const events = payload.events || [];
+      $('#eventsTotal').text((payload.summary && payload.summary.total) || 0);
+      const tbody = $('#eventsTableBody');
+      tbody.empty();
+      if (!events.length) {
+        tbody.append('<tr><td colspan="6" class="text-center text-muted">' + t('detection_empty') + '</td></tr>');
+        return;
+      }
+      events.forEach(function (event) {
+        const snapshot = event.snapshot_path ? '<code>' + event.snapshot_path + '</code>' : t('detection_no_snapshot');
+        tbody.append('<tr>' +
+          '<td>' + new Date(event.entered_at).toLocaleString() + '</td>' +
+          '<td>' + (event.stream_name || event.stream_uuid) + '</td>' +
+          '<td>' + event.channel_id + '</td>' +
+          '<td>' + event.object_class + '</td>' +
+          '<td>' + (event.track_id || '-') + '</td>' +
+          '<td>' + snapshot + '</td>' +
+          '</tr>');
+      });
+    });
+  }
+
+  function exportDetectionEvents() {
+    const query = $.param(buildEventQuery());
+    window.location.href = '/detection/events/export?' + query;
+  }
+</script>
