@@ -36,6 +36,11 @@
               <label data-i18n="detection_export_dir">报表导出目录</label>
               <input id="exportDir" class="form-control" type="text" placeholder="save/reports">
             </div>
+            <div class="form-group">
+              <label data-i18n="detection_access_token">Detector Access Token</label>
+              <input id="detectorAccessToken" class="form-control" type="text" placeholder="auto-generated">
+              <small class="form-text text-muted" data-i18n="detection_access_token_help">Detector 服务访问 CamLink API 时使用的鉴权 token</small>
+            </div>
             <button id="saveDetectionSettings" class="btn btn-primary" data-i18n="detection_save_service">保存检测设置</button>
           </div>
         </div>
@@ -99,6 +104,36 @@
               <div class="form-group col-md-4">
                 <label data-i18n="detection_consecutive">进入判定连续帧数</label>
                 <input id="consecutiveFrames" class="form-control" type="number" min="1" max="10" value="2">
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group col-md-4">
+                <label data-i18n="detection_direction">进入方向</label>
+                <select id="entryDirection" class="form-control">
+                  <option value="any" data-i18n="detection_direction_any">不限</option>
+                  <option value="left_to_right" data-i18n="detection_direction_ltr">从左到右</option>
+                  <option value="right_to_left" data-i18n="detection_direction_rtl">从右到左</option>
+                  <option value="top_to_bottom" data-i18n="detection_direction_ttb">从上到下</option>
+                  <option value="bottom_to_top" data-i18n="detection_direction_btt">从下到上</option>
+                </select>
+                <small class="form-text text-muted" data-i18n="detection_direction_help">仅在方向符合时触发进入事件</small>
+              </div>
+            </div>
+            <div class="form-row">
+              <div class="form-group col-md-4">
+                <label data-i18n="detection_confidence">置信度阈值</label>
+                <input id="confidenceThreshold" class="form-control" type="number" min="0.05" max="0.95" step="0.05" value="0.35">
+                <small class="form-text text-muted" data-i18n="detection_confidence_help">提高阈值可减少误报</small>
+              </div>
+              <div class="form-group col-md-4">
+                <label data-i18n="detection_min_area">最小目标面积(像素)</label>
+                <input id="minBoxArea" class="form-control" type="number" min="0" step="100" value="1200">
+                <small class="form-text text-muted" data-i18n="detection_min_area_help">过滤小噪点或远处误检</small>
+              </div>
+              <div class="form-group col-md-4">
+                <label data-i18n="detection_min_move">最小进入位移(像素)</label>
+                <input id="minMovePx" class="form-control" type="number" min="0" step="1" value="12">
+                <small class="form-text text-muted" data-i18n="detection_min_move_help">过滤静止物体抖动触发</small>
               </div>
             </div>
             <div class="form-group">
@@ -211,6 +246,8 @@
   const initialStreamUUID = '{{ .initial_uuid }}';
   const initialChannelID = '{{ .initial_channel }}';
   let detectionOverview = [];
+  let preferredStreamUUID = '';
+  let preferredChannelID = '';
 
   $(document).ready(function () {
     loadDetectionSettings();
@@ -225,9 +262,14 @@
     $("#saveDetectionRules").on("click", saveDetectionRules);
     $("#targetStream").on("change", function () {
       fillChannelSelectors($("#targetChannel"), $(this).val(), "0");
+      preferredStreamUUID = $(this).val();
+      preferredChannelID = $("#targetChannel").val();
       loadSelectedDetectionConfig();
     });
-    $("#targetChannel").on("change", loadSelectedDetectionConfig);
+    $("#targetChannel").on("change", function () {
+      preferredChannelID = $(this).val();
+      loadSelectedDetectionConfig();
+    });
     $("#queryStream").on("change", function () {
       fillChannelSelectors($("#queryChannel"), $(this).val(), "0");
     });
@@ -245,6 +287,7 @@
       $("#detectorUrl").val(s.detector_url || "");
       $("#eventsDbPath").val(s.events_db_path || "");
       $("#exportDir").val(s.export_dir || "");
+      $("#detectorAccessToken").val(s.access_token || "");
     });
   }
 
@@ -252,7 +295,8 @@
     const body = {
       detector_url: $("#detectorUrl").val().trim(),
       events_db_path: $("#eventsDbPath").val().trim(),
-      export_dir: $("#exportDir").val().trim()
+      export_dir: $("#exportDir").val().trim(),
+      access_token: $("#detectorAccessToken").val().trim()
     };
     $.ajax({
       url: "/detection/settings/global",
@@ -302,12 +346,17 @@
       queryStream.append('<option value="' + uuid + '">' + label + ' (' + uuid + ')</option>');
     });
 
-    if (initialStreamUUID && streamMap[initialStreamUUID]) {
+    if (preferredStreamUUID && streamMap[preferredStreamUUID]) {
+      streamSelect.val(preferredStreamUUID);
+      queryStream.val(preferredStreamUUID);
+    } else if (initialStreamUUID && streamMap[initialStreamUUID]) {
       streamSelect.val(initialStreamUUID);
       queryStream.val(initialStreamUUID);
     }
-    fillChannelSelectors(channelSelect, streamSelect.val(), initialChannelID);
-    fillChannelSelectors(queryChannel, queryStream.val(), initialChannelID);
+    const chosenStream = streamSelect.val();
+    const chosenChannel = preferredChannelID || initialChannelID;
+    fillChannelSelectors(channelSelect, chosenStream, chosenChannel);
+    fillChannelSelectors(queryChannel, queryStream.val(), chosenChannel);
   }
 
   function fillChannelSelectors(selectEl, streamUUID, preferredChannel) {
@@ -348,6 +397,13 @@
       $("#sampleFps").val(detection.sample_fps || 1);
       $("#cooldownSeconds").val(detection.cooldown_seconds || 30);
       $("#consecutiveFrames").val(detection.trigger_consecutive_frames || 2);
+      $("#entryDirection").val(detection.entry_direction || "any");
+      const conf = (detection.confidence_threshold != null) ? detection.confidence_threshold : 0.35;
+      const minArea = (detection.min_box_area != null) ? detection.min_box_area : 1200;
+      const minMove = (detection.min_move_px != null) ? detection.min_move_px : 12;
+      $("#confidenceThreshold").val(conf);
+      $("#minBoxArea").val(minArea);
+      $("#minMovePx").val(minMove);
       $("#telegramEnabled").prop("checked", !!detection.telegram_enabled);
       $("#telegramChatId").val(detection.telegram_chat_id || "");
       $("#polygonJson").val(JSON.stringify(detection.polygon || [], null, 2));
@@ -357,6 +413,8 @@
       });
       $("#queryStream").val(uuid);
       fillChannelSelectors($("#queryChannel"), uuid, channel);
+      preferredStreamUUID = uuid;
+      preferredChannelID = channel;
     });
   }
 
@@ -376,14 +434,24 @@
         return;
       }
     }
+    const sampleFpsVal = parseInt($("#sampleFps").val(), 10);
+    const cooldownVal = parseInt($("#cooldownSeconds").val(), 10);
+    const consecutiveVal = parseInt($("#consecutiveFrames").val(), 10);
+    const confVal = parseFloat($("#confidenceThreshold").val());
+    const minBoxVal = parseInt($("#minBoxArea").val(), 10);
+    const minMoveVal = parseInt($("#minMovePx").val(), 10);
     const body = {
       enabled: $("#detectionEnabled").prop("checked"),
       mode: $("#detectionMode").val(),
-      sample_fps: parseInt($("#sampleFps").val(), 10) || 1,
-      cooldown_seconds: parseInt($("#cooldownSeconds").val(), 10) || 30,
+      entry_direction: $("#entryDirection").val(),
+      sample_fps: Number.isNaN(sampleFpsVal) ? 1 : sampleFpsVal,
+      cooldown_seconds: Number.isNaN(cooldownVal) ? 30 : cooldownVal,
+      confidence_threshold: Number.isNaN(confVal) ? 0.35 : confVal,
+      min_box_area: Number.isNaN(minBoxVal) ? 1200 : minBoxVal,
+      min_move_px: Number.isNaN(minMoveVal) ? 12 : minMoveVal,
       classes: $(".detection-class:checked").map(function () { return $(this).val(); }).get(),
       polygon: polygon,
-      trigger_consecutive_frames: parseInt($("#consecutiveFrames").val(), 10) || 2,
+      trigger_consecutive_frames: Number.isNaN(consecutiveVal) ? 2 : consecutiveVal,
       telegram_enabled: $("#telegramEnabled").prop("checked"),
       telegram_chat_id: $("#telegramChatId").val().trim()
     };
@@ -394,6 +462,8 @@
       data: JSON.stringify(body),
       success: function () {
         Swal.fire({ icon: 'success', title: t('saved'), confirmButtonText: t('ok') });
+        preferredStreamUUID = uuid;
+        preferredChannelID = channel;
         loadDetectionOverview();
       },
       error: function (xhr) {
@@ -495,7 +565,7 @@
       events.forEach(function (event) {
         const snapshot = event.snapshot_path ? '<code>' + event.snapshot_path + '</code>' : t('detection_no_snapshot');
         tbody.append('<tr>' +
-          '<td>' + new Date(event.entered_at).toLocaleString() + '</td>' +
+          '<td>' + new Date(event.entered_at).toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" }) + '</td>' +
           '<td>' + (event.stream_name || event.stream_uuid) + '</td>' +
           '<td>' + event.channel_id + '</td>' +
           '<td>' + event.object_class + '</td>' +

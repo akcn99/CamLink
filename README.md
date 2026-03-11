@@ -35,6 +35,18 @@ cp config.example.json config.local.json
   - Phase 1: 配置页、服务联通、Docker 骨架
   - Phase 2: SQLite 事件库、时间段查询、CSV 导出、测试事件写入
 
+
+## 车辆检测服务对接
+
+Detector 服务会通过 `CAMLINK_API_BASE` 访问 CamLink API，并使用 `CAMLINK_DETECTOR_TOKEN` 进行鉴权。
+Token 由后端自动生成并保存在 `config.local.json` 的 `server.detection.access_token`，也可以在“车辆检测 -> 检测服务设置”里查看或修改。
+
+推荐做法：
+- 从 UI 或 `config.local.json` 复制 `access_token`
+- 写入 `.env` 的 `CAMLINK_DETECTOR_TOKEN`
+
+Docker 运行时会自动注入到 detector 容器。
+
 ## 快速开始（Docker / OrbStack）
 
 ### 1. 准备本地配置

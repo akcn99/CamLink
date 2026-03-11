@@ -16,6 +16,9 @@ FROM alpine:3.23
 
 WORKDIR /app
 
+RUN apk add --no-cache tzdata
+ENV TZ=Asia/Shanghai
+
 COPY --from=builder /go/src/app/rtsp-to-web /app/
 COPY --from=builder /go/src/app/web /app/web
 

@@ -11,7 +11,7 @@ import (
 // StreamChannelMake check stream exist
 func (obj *StorageST) StreamChannelMake(val ChannelST) ChannelST {
 	channel := obj.ChannelDefaults
-	if err := mergo.Merge(&channel, val); err != nil {
+	if err := mergo.Merge(&channel, val, mergo.WithOverride); err != nil {
 		// Just ignore the default values and continue
 		channel = val
 		log.WithFields(logrus.Fields{

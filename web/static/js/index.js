@@ -472,6 +472,9 @@ function browserDetector() {
 
 function addChannel() {
   $('#streams-form-wrapper').append(chanellTemplate());
+  if (typeof applyI18n === "function") {
+    applyI18n();
+  }
 }
 
 function chanellTemplate() {
@@ -507,6 +510,13 @@ function chanellTemplate() {
                 <label class="custom-control-label" for="substream-debug-switch-` + random + `">Enable debug</label>
               </div>
               <small  class="form-text text-muted">Select this options if you want get more data about the stream </small>
+            </div>
+            <div class="form-group">
+              <div class="custom-control custom-switch">
+                <input type="checkbox" class="custom-control-input" name="audio" id="substream-audio-switch-` + random + `" checked>
+                <label class="custom-control-label" for="substream-audio-switch-` + random + `" data-i18n="stream_audio">启用音频</label>
+              </div>
+              <small class="form-text text-muted" data-i18n="stream_audio_help">如遇到音频导致的异常崩溃，可临时关闭音频</small>
             </div>
               </form>
           </div>

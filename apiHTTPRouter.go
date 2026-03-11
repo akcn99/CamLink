@@ -67,6 +67,9 @@ func HTTPAPIServer() {
 		public.StaticFS("/static", http.Dir(Storage.ServerHTTPDir()+"/static"))
 	}
 
+	public.GET("/detector/config", HTTPAPIDetectorConfig)
+	public.POST("/detector/events", HTTPAPIDetectorEventIngest)
+
 	/*
 		Stream Control elements
 	*/

@@ -120,11 +120,12 @@ type DetectionServerST struct {
 	DetectorURL  string `json:"detector_url,omitempty" groups:"api,config"`
 	EventsDBPath string `json:"events_db_path,omitempty" groups:"api,config"`
 	ExportDir    string `json:"export_dir,omitempty" groups:"api,config"`
+	AccessToken  string `json:"access_token,omitempty" groups:"api,config"`
 }
 
 type DetectionPointST struct {
-	X int `json:"x" groups:"api,config"`
-	Y int `json:"y" groups:"api,config"`
+	X float64 `json:"x" groups:"api,config"`
+	Y float64 `json:"y" groups:"api,config"`
 }
 
 type DetectionChannelST struct {
@@ -132,6 +133,10 @@ type DetectionChannelST struct {
 	Mode                     string             `json:"mode,omitempty" groups:"api,config"`
 	SampleFPS                int                `json:"sample_fps,omitempty" groups:"api,config"`
 	CooldownSeconds          int                `json:"cooldown_seconds,omitempty" groups:"api,config"`
+	ConfidenceThreshold      float64            `json:"confidence_threshold,omitempty" groups:"api,config"`
+	MinBoxArea               int                `json:"min_box_area" groups:"api,config"`
+	MinMovePixels            int                `json:"min_move_px" groups:"api,config"`
+	EntryDirection           string             `json:"entry_direction,omitempty" groups:"api,config"`
 	Classes                  []string           `json:"classes,omitempty" groups:"api,config"`
 	Polygon                  []DetectionPointST `json:"polygon,omitempty" groups:"api,config"`
 	TriggerConsecutiveFrames int                `json:"trigger_consecutive_frames,omitempty" groups:"api,config"`
@@ -163,7 +168,7 @@ type ChannelST struct {
 	Debug              bool               `json:"debug,omitempty" groups:"api,config"`
 	Status             int                `json:"status,omitempty" groups:"api"`
 	InsecureSkipVerify bool               `json:"insecure_skip_verify,omitempty" groups:"api,config"`
-	Audio              bool               `json:"audio,omitempty" groups:"api,config"`
+	Audio              *bool              `json:"audio,omitempty" groups:"api,config"`
 	Detection          DetectionChannelST `json:"detection,omitempty" groups:"api,config"`
 	runLock            bool
 	codecs             []av.CodecData
@@ -185,6 +190,14 @@ type ClientST struct {
 	outgoingAVPacket  chan *av.Packet
 	outgoingRTPPacket chan *[]byte
 	socket            net.Conn
+}
+
+// AudioEnabled returns true when audio is enabled for the channel.
+func (c *ChannelST) AudioEnabled() bool {
+	if c == nil || c.Audio == nil {
+		return true
+	}
+	return *c.Audio
 }
 
 // SegmentOld HLS cache section

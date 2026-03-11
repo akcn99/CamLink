@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/url"
 	"strings"
@@ -44,6 +45,10 @@ func HTTPAPIUpdateDetectionSettings(c *gin.Context) {
 	payload.DetectorURL = strings.TrimRight(strings.TrimSpace(payload.DetectorURL), "/")
 	payload.EventsDBPath = strings.TrimSpace(payload.EventsDBPath)
 	payload.ExportDir = strings.TrimSpace(payload.ExportDir)
+	payload.AccessToken = strings.TrimSpace(payload.AccessToken)
+	if payload.AccessToken == "" {
+		payload.AccessToken = Storage.ServerDetection().AccessToken
+	}
 	if payload.DetectorURL != "" {
 		parsed, err := url.Parse(payload.DetectorURL)
 		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
@@ -128,12 +133,42 @@ func HTTPAPIUpdateDetectionConfig(c *gin.Context) {
 		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "unsupported detection mode"})
 		return
 	}
+	payload.EntryDirection = strings.TrimSpace(strings.ToLower(payload.EntryDirection))
+	if payload.EntryDirection == "" {
+		payload.EntryDirection = "any"
+	}
+	allowedDirections := map[string]bool{
+		"any":            true,
+		"left_to_right":  true,
+		"right_to_left":  true,
+		"top_to_bottom":  true,
+		"bottom_to_top":  true,
+	}
+	if !allowedDirections[payload.EntryDirection] {
+		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "unsupported entry_direction"})
+		return
+	}
+	if payload.ConfidenceThreshold <= 0 {
+		payload.ConfidenceThreshold = 0.35
+	}
 	if payload.SampleFPS <= 0 || payload.SampleFPS > 5 {
 		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "sample_fps must be between 1 and 5"})
 		return
 	}
 	if payload.CooldownSeconds <= 0 || payload.CooldownSeconds > 3600 {
 		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "cooldown_seconds must be between 1 and 3600"})
+		return
+	}
+	if payload.ConfidenceThreshold < 0.05 || payload.ConfidenceThreshold > 0.95 {
+		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "confidence_threshold must be between 0.05 and 0.95"})
+		return
+	}
+	if payload.MinBoxArea < 0 || payload.MinBoxArea > 5000000 {
+		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "min_box_area must be between 0 and 5000000"})
+		return
+	}
+	if payload.MinMovePixels < 0 || payload.MinMovePixels > 1000 {
+		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "min_move_px must be between 0 and 1000"})
 		return
 	}
 	if payload.TriggerConsecutiveFrames <= 0 || payload.TriggerConsecutiveFrames > 10 {
@@ -143,6 +178,16 @@ func HTTPAPIUpdateDetectionConfig(c *gin.Context) {
 	if len(payload.Polygon) != 0 && len(payload.Polygon) < 3 {
 		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "polygon must contain at least 3 points"})
 		return
+	}
+	for _, pt := range payload.Polygon {
+		if math.IsNaN(pt.X) || math.IsNaN(pt.Y) || math.IsInf(pt.X, 0) || math.IsInf(pt.Y, 0) {
+			c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "polygon contains invalid coordinates"})
+			return
+		}
+		if pt.X < 0 || pt.Y < 0 {
+			c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "polygon coordinates must be non-negative"})
+			return
+		}
 	}
 	allowedClasses := map[string]bool{"car": true, "motorcycle": true, "bicycle": true}
 	classes := make([]string, 0, len(payload.Classes))
@@ -169,6 +214,65 @@ func HTTPAPIUpdateDetectionConfig(c *gin.Context) {
 		return
 	}
 	c.IndentedJSON(http.StatusOK, Message{Status: 1, Payload: Success})
+}
+
+func detectorTokenAuthorized(c *gin.Context) bool {
+	token := strings.TrimSpace(c.GetHeader("X-CamLink-Detector-Token"))
+	if token == "" {
+		token = strings.TrimSpace(c.Query("token"))
+	}
+	return token != "" && token == Storage.ServerDetection().AccessToken
+}
+
+func HTTPAPIDetectorConfig(c *gin.Context) {
+	if !detectorTokenAuthorized(c) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, Message{Status: 0, Payload: ErrorUnauthorized.Error()})
+		return
+	}
+	items := make([]gin.H, 0)
+	Storage.mutex.RLock()
+	for streamUUID, stream := range Storage.Streams {
+		for channelID, channel := range stream.Channels {
+			if !channel.Detection.Enabled {
+				continue
+			}
+			items = append(items, gin.H{
+				"stream_uuid": streamUUID,
+				"stream_name": stream.Name,
+				"channel_id":  channelID,
+				"stream_url":  channel.URL,
+				"on_demand":   channel.OnDemand,
+				"detection":   channel.Detection,
+			})
+		}
+	}
+	Storage.mutex.RUnlock()
+	c.IndentedJSON(http.StatusOK, Message{Status: 1, Payload: gin.H{
+		"items":       items,
+		"server_time": time.Now().UTC().Format(time.RFC3339),
+	}})
+}
+
+func HTTPAPIDetectorEventIngest(c *gin.Context) {
+	if !detectorTokenAuthorized(c) {
+		c.AbortWithStatusJSON(http.StatusUnauthorized, Message{Status: 0, Payload: ErrorUnauthorized.Error()})
+		return
+	}
+	var payload DetectionEventST
+	if err := c.BindJSON(&payload); err != nil {
+		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: err.Error()})
+		return
+	}
+	if err := hydrateDetectionEvent(&payload); err != nil {
+		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: err.Error()})
+		return
+	}
+	event, err := DetectionEvents.Append(payload)
+	if err != nil {
+		c.IndentedJSON(http.StatusInternalServerError, Message{Status: 0, Payload: err.Error()})
+		return
+	}
+	c.IndentedJSON(http.StatusOK, Message{Status: 1, Payload: event})
 }
 
 func HTTPAPIGetDetectionEvents(c *gin.Context) {

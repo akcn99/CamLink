@@ -49,7 +49,8 @@
     "detection": {
       "detector_url": "http://camlink-detector:8091",
       "events_db_path": "save/detection-events.db",
-      "export_dir": "save/reports"
+      "export_dir": "save/reports",
+      "access_token": ""
     }
   },
   "streams": {}

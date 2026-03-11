@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: camlink-app
+    environment:
+      TZ: "${TZ:-Asia/Shanghai}"
     ports:
       - "${CAMLINK_HTTP_PORT:-8083}:8083"
       - "${CAMLINK_RTSP_PORT:-5541}:5541"
@@ -19,8 +21,17 @@ services:
       dockerfile: Dockerfile
     container_name: camlink-detector
     environment:
+      TZ: "${TZ:-Asia/Shanghai}"
       CAMLINK_DETECTOR_PORT: "8091"
+      CAMLINK_API_BASE: "${CAMLINK_API_BASE:-http://camlink-app:8083}"
+      CAMLINK_DETECTOR_TOKEN: "${CAMLINK_DETECTOR_TOKEN:-}"
       TELEGRAM_BOT_TOKEN: "${TELEGRAM_BOT_TOKEN:-}"
+      YOLO_MODEL_VARIANT: "${YOLO_MODEL_VARIANT:-yolov5s}"
+      YOLO_MODEL_URL: "${YOLO_MODEL_URL:-}"
+      YOLO_MODEL_PATH: "${YOLO_MODEL_PATH:-}"
+      CAMLINK_RTSP_TRANSPORT: "${CAMLINK_RTSP_TRANSPORT:-tcp}"
+      CAMLINK_RTSP_READ_TIMEOUT: "${CAMLINK_RTSP_READ_TIMEOUT:-10}"
+      CAMLINK_RTSP_OPEN_TIMEOUT: "${CAMLINK_RTSP_OPEN_TIMEOUT:-10}"
     ports:
       - "${CAMLINK_DETECTOR_HOST_PORT:-8091}:8091"
     volumes:

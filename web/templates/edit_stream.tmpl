@@ -60,6 +60,15 @@
                   </div>
                   <small  class="form-text text-muted">Select this options if you want get more data about the stream </small>
                 </div>
+                <div class="form-group">
+                  <div class="custom-control custom-switch">
+                    <input type="checkbox" class="custom-control-input" name="audio" id="audio-switch" {{ if $mainChannel.AudioEnabled }}
+                      checked
+                    {{ end }}>
+                    <label class="custom-control-label" for="audio-switch" data-i18n="stream_audio">启用音频</label>
+                  </div>
+                  <small class="form-text text-muted" data-i18n="stream_audio_help">如遇到音频导致的异常崩溃，可临时关闭音频</small>
+                </div>
               </div>
             </form>
           </div>
@@ -107,6 +116,15 @@
                           </div>
                           <small  class="form-text text-muted">Select this options if you want get more data about the stream </small>
                         </div>
+                        <div class="form-group">
+                          <div class="custom-control custom-switch">
+                            <input type="checkbox" class="custom-control-input" name="audio" id="substream-audio-switch-{{$key}}" {{ if $value.AudioEnabled }}
+                              checked
+                            {{ end }}>
+                            <label class="custom-control-label" for="substream-audio-switch-{{$key}}" data-i18n="stream_audio">启用音频</label>
+                          </div>
+                          <small class="form-text text-muted" data-i18n="stream_audio_help">如遇到音频导致的异常崩溃，可临时关闭音频</small>
+                        </div>
                           </form>
                       </div>
                   </div>
@@ -141,6 +159,7 @@ function editStreamSubmit(){
         url:$(this).find('input[name="stream-url"]').val(),
         on_demand:Boolean(parseInt($(this).find('select[name="stream-ondemand"]').val())),
         debug:Boolean($(this).find('input[name="debug"]').prop('checked')),
+        audio:Boolean($(this).find('input[name="audio"]').prop('checked')),
     }
     if(params.channels[i].on_demand==null){
       params.channels[i].on_demand==true;

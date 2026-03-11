@@ -50,7 +50,7 @@ func NewStreamCore() *StorageST {
 	for i, i2 := range tmp.Streams {
 		for i3, i4 := range i2.Channels {
 			channel := tmp.ChannelDefaults
-			err = mergo.Merge(&channel, i4)
+			err = mergo.Merge(&channel, i4, mergo.WithOverride)
 			if err != nil {
 				log.WithFields(logrus.Fields{
 					"module": "config",
@@ -134,6 +134,9 @@ func applyServerDefaults(server *ServerST) {
 	if server.Detection.ExportDir == "" {
 		server.Detection.ExportDir = "save/reports"
 	}
+	if server.Detection.AccessToken == "" {
+		server.Detection.AccessToken = randomAlphaNum(32)
+	}
 	if server.HTTPLogin == "" {
 		server.HTTPLogin = "admin"
 	}
@@ -154,8 +157,9 @@ func applyServerDefaults(server *ServerST) {
 func applyChannelDefaults(channel *ChannelST) {
 	// Most cameras are expected to have audio; enable it by default unless
 	// explicitly configured in the future by a dedicated field.
-	if !channel.Audio {
-		channel.Audio = true
+	if channel.Audio == nil {
+		enabled := true
+		channel.Audio = &enabled
 	}
 	if channel.Detection.Mode == "" {
 		channel.Detection.Mode = "vehicle_entry"
@@ -165,6 +169,18 @@ func applyChannelDefaults(channel *ChannelST) {
 	}
 	if channel.Detection.CooldownSeconds <= 0 {
 		channel.Detection.CooldownSeconds = 30
+	}
+	if channel.Detection.ConfidenceThreshold <= 0 {
+		channel.Detection.ConfidenceThreshold = 0.35
+	}
+	if channel.Detection.MinBoxArea < 0 {
+		channel.Detection.MinBoxArea = 0
+	}
+	if channel.Detection.MinMovePixels < 0 {
+		channel.Detection.MinMovePixels = 0
+	}
+	if strings.TrimSpace(channel.Detection.EntryDirection) == "" {
+		channel.Detection.EntryDirection = "any"
 	}
 	if len(channel.Detection.Classes) == 0 {
 		channel.Detection.Classes = []string{"car", "motorcycle", "bicycle"}
