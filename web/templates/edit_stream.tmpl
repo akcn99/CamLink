@@ -133,13 +133,12 @@
               {{ end }}
           {{ end }}
         </div>
-        <div class="row  mb-3">
-            <div class="col-12">
-              <button type="button" onclick="addChannel()" class="btn btn-secondary">Add channel</button>
-              <button type="button" onclick="editStreamSubmit()" class="btn btn-primary">Save stream</button>
-            </div>
+        <div class="row mb-3">
+          <div class="col-12">
+            <button type="button" onclick="addChannel()" class="btn btn-secondary">Add channel</button>
+            <button type="button" onclick="editStreamSubmit()" class="btn btn-primary">Save stream</button>
+          </div>
         </div>
-
     </div>
   </section>
 
@@ -155,14 +154,12 @@ function editStreamSubmit(){
   }
 
   $('.stream-form').each(function(i){
+    const onDemandVal = $(this).find('select[name="stream-ondemand"]').val();
     params.channels[i]={
         url:$(this).find('input[name="stream-url"]').val(),
-        on_demand:Boolean(parseInt($(this).find('select[name="stream-ondemand"]').val())),
+        on_demand:(onDemandVal == null ? true : Boolean(parseInt(onDemandVal, 10))),
         debug:Boolean($(this).find('input[name="debug"]').prop('checked')),
         audio:Boolean($(this).find('input[name="audio"]').prop('checked')),
-    }
-    if(params.channels[i].on_demand==null){
-      params.channels[i].on_demand==true;
     }
   });
   goRequest('edit', params.uuid, params);

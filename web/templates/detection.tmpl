@@ -100,6 +100,7 @@
               <div class="form-group col-md-4">
                 <label data-i18n="detection_cooldown">告警冷却时间(秒)</label>
                 <input id="cooldownSeconds" class="form-control" type="number" min="1" max="3600" value="30">
+                <small class="form-text text-muted" data-i18n="detection_cooldown_help">用于屏蔽短时间内重复事件</small>
               </div>
               <div class="form-group col-md-4">
                 <label data-i18n="detection_consecutive">进入判定连续帧数</label>
@@ -156,7 +157,19 @@
             <div class="form-group">
               <label data-i18n="detection_polygon">检测区域多边形(JSON)</label>
               <textarea id="polygonJson" class="form-control" rows="5" placeholder='[{"x":120,"y":80},{"x":580,"y":90},{"x":620,"y":410}]'></textarea>
-              <small class="form-text text-muted" data-i18n="detection_polygon_help">Phase 2 将接入鼠标画区，当前先使用 JSON 点位数组。</small>
+              <small class="form-text text-muted" data-i18n="detection_polygon_help">可直接填写 JSON，或使用画区工具生成坐标。</small>
+              <div class="mt-2">
+                <button type="button" class="btn btn-outline-primary btn-sm" id="openDrawPanel" data-i18n="detection_draw_open">打开画区面板</button>
+                <button type="button" class="btn btn-outline-secondary btn-sm ml-2" id="clearPolygon" data-i18n="detection_draw_clear_polygon">清空区域</button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label data-i18n="detection_entry_line">进入方向线(JSON)</label>
+              <textarea id="entryLineJson" class="form-control" rows="2" placeholder='[{"x":120,"y":200},{"x":520,"y":200}]'></textarea>
+              <small class="form-text text-muted" data-i18n="detection_entry_line_help">使用 2 个点表示方向线，配置后只触发跨越该线的进入事件。</small>
+              <div class="mt-2">
+                <button type="button" class="btn btn-outline-secondary btn-sm" id="clearEntryLine" data-i18n="detection_draw_clear_line">清空方向线</button>
+              </div>
             </div>
             <div class="form-group">
               <div class="custom-control custom-switch">
@@ -241,6 +254,64 @@
     </div>
   </div>
 </div>
+
+<div class="modal fade" id="drawDetectionModal" tabindex="-1" role="dialog" aria-labelledby="drawDetectionLabel" aria-hidden="true">
+  <div class="modal-dialog modal-xl" role="document">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="drawDetectionLabel" data-i18n="detection_draw_title">画区工具</h5>
+        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+          <span aria-hidden="true">&times;</span>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="row">
+          <div class="col-lg-9 mb-3">
+            <div class="detection-canvas-wrap border rounded">
+              <canvas id="detectionCanvas"></canvas>
+            </div>
+          </div>
+          <div class="col-lg-3">
+            <div class="btn-group-vertical w-100 mb-3">
+              <button type="button" class="btn btn-outline-primary" id="drawPolygonMode" data-i18n="detection_draw_polygon">绘制检测区域</button>
+              <button type="button" class="btn btn-outline-primary" id="drawLineMode" data-i18n="detection_draw_line">绘制方向线</button>
+              <button type="button" class="btn btn-outline-secondary" id="drawUndo" data-i18n="detection_draw_undo">撤销</button>
+              <button type="button" class="btn btn-outline-danger" id="drawClearAll" data-i18n="detection_draw_clear_all">清空</button>
+            </div>
+            <button type="button" class="btn btn-outline-info w-100 mb-3" id="drawRefresh" data-i18n="detection_draw_refresh">抓取当前画面</button>
+            <div class="custom-control custom-switch mb-2">
+              <input type="checkbox" class="custom-control-input" id="drawUseRelative" checked>
+              <label class="custom-control-label" for="drawUseRelative" data-i18n="detection_draw_relative">保存为相对坐标</label>
+            </div>
+            <small class="text-muted" data-i18n="detection_draw_help">点击画面添加点位，双击结束多边形，方向线只需两点。</small>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-primary" id="applyDrawToForm" data-i18n="detection_draw_apply">应用到表单</button>
+        <button type="button" class="btn btn-secondary" data-dismiss="modal" data-i18n="cancel">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+  .detection-canvas-wrap {
+    position: relative;
+    width: 100%;
+    min-height: 360px;
+    background: #101418;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+  }
+  #detectionCanvas {
+    max-width: 100%;
+    height: auto;
+    cursor: crosshair;
+  }
+</style>
 {{template "foot.tmpl" .}}
 <script>
   const initialStreamUUID = '{{ .initial_uuid }}';
@@ -248,12 +319,19 @@
   let detectionOverview = [];
   let preferredStreamUUID = '';
   let preferredChannelID = '';
+  let drawCanvas = null;
+  let drawCtx = null;
+  let drawImage = null;
+  let drawMode = 'polygon';
+  let drawPolygonPoints = [];
+  let drawLinePoints = [];
 
   $(document).ready(function () {
     loadDetectionSettings();
     loadDetectionOverview();
     refreshDetectorStatus();
     bindDetectionActions();
+    initDrawCanvas();
   });
 
   function bindDetectionActions() {
@@ -276,6 +354,195 @@
     $("#queryDetectionEvents").on("click", loadDetectionEvents);
     $("#exportDetectionEvents").on("click", exportDetectionEvents);
     $("#mockDetectionEvent").on("click", createMockDetectionEvent);
+    $("#openDrawPanel").on("click", openDrawPanel);
+    $("#clearPolygon").on("click", function () { $("#polygonJson").val("[]"); });
+    $("#clearEntryLine").on("click", function () { $("#entryLineJson").val("[]"); });
+    $("#drawPolygonMode").on("click", function () { setDrawMode('polygon'); });
+    $("#drawLineMode").on("click", function () { setDrawMode('line'); });
+    $("#drawUndo").on("click", drawUndoPoint);
+    $("#drawClearAll").on("click", drawClearAll);
+    $("#drawRefresh").on("click", loadDrawSnapshot);
+    $("#applyDrawToForm").on("click", applyDrawToForm);
+  }
+
+  function initDrawCanvas() {
+    drawCanvas = document.getElementById("detectionCanvas");
+    if (!drawCanvas) {
+      return;
+    }
+    drawCtx = drawCanvas.getContext("2d");
+    drawImage = new Image();
+    drawImage.onload = function () {
+      drawCanvas.width = drawImage.naturalWidth;
+      drawCanvas.height = drawImage.naturalHeight;
+      hydrateDrawPointsFromForm();
+      redrawCanvas();
+    };
+    drawImage.onerror = function () {
+      Swal.fire({ icon: "error", title: t("error"), text: t("detection_draw_load_failed"), confirmButtonText: t("ok") });
+    };
+    drawCanvas.addEventListener("click", function (event) {
+      if (!drawImage || !drawImage.naturalWidth) {
+        return;
+      }
+      const point = canvasPointFromEvent(drawCanvas, event);
+      if (drawMode === 'polygon') {
+        drawPolygonPoints.push(point);
+      } else {
+        if (drawLinePoints.length >= 2) {
+          drawLinePoints = [];
+        }
+        drawLinePoints.push(point);
+      }
+      redrawCanvas();
+    });
+    drawCanvas.addEventListener("dblclick", function () {
+      if (drawMode === 'polygon') {
+        redrawCanvas();
+      }
+    });
+  }
+
+  function canvasPointFromEvent(canvas, event) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+    return {
+      x: Math.round((event.clientX - rect.left) * scaleX),
+      y: Math.round((event.clientY - rect.top) * scaleY)
+    };
+  }
+
+  function openDrawPanel() {
+    $("#drawDetectionModal").modal("show");
+    setDrawMode("polygon");
+    loadDrawSnapshot();
+  }
+
+  function loadDrawSnapshot() {
+    const uuid = $("#targetStream").val();
+    const channel = $("#targetChannel").val();
+    if (!uuid || !channel) {
+      return;
+    }
+    const url = "/detection/snapshot/" + encodeURIComponent(uuid) + "/" + encodeURIComponent(channel) + "?ts=" + Date.now();
+    drawImage.src = url;
+  }
+
+  function hydrateDrawPointsFromForm() {
+    drawPolygonPoints = parsePointJson($("#polygonJson").val(), drawImage.naturalWidth, drawImage.naturalHeight);
+    drawLinePoints = parsePointJson($("#entryLineJson").val(), drawImage.naturalWidth, drawImage.naturalHeight);
+    redrawCanvas();
+  }
+
+  function parsePointJson(text, w, h) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) {
+      return [];
+    }
+    try {
+      const points = JSON.parse(trimmed);
+      if (!Array.isArray(points)) {
+        return [];
+      }
+      let maxX = 0;
+      let maxY = 0;
+      points.forEach(function (p) {
+        maxX = Math.max(maxX, Number(p.x || 0));
+        maxY = Math.max(maxY, Number(p.y || 0));
+      });
+      const isRatio = maxX <= 1.01 && maxY <= 1.01;
+      return points.map(function (p) {
+        const x = Number(p.x || 0);
+        const y = Number(p.y || 0);
+        return {
+          x: isRatio ? Math.round(x * w) : Math.round(x),
+          y: isRatio ? Math.round(y * h) : Math.round(y)
+        };
+      });
+    } catch (err) {
+      return [];
+    }
+  }
+
+  function setDrawMode(mode) {
+    drawMode = mode;
+    $("#drawPolygonMode").toggleClass("active", mode === "polygon");
+    $("#drawLineMode").toggleClass("active", mode === "line");
+  }
+
+  function drawUndoPoint() {
+    if (drawMode === 'polygon' && drawPolygonPoints.length) {
+      drawPolygonPoints.pop();
+    } else if (drawMode === 'line' && drawLinePoints.length) {
+      drawLinePoints.pop();
+    }
+    redrawCanvas();
+  }
+
+  function drawClearAll() {
+    drawPolygonPoints = [];
+    drawLinePoints = [];
+    redrawCanvas();
+  }
+
+  function applyDrawToForm() {
+    const useRelative = $("#drawUseRelative").prop("checked");
+    const w = drawCanvas.width || 1;
+    const h = drawCanvas.height || 1;
+    $("#polygonJson").val(JSON.stringify(serializePoints(drawPolygonPoints, useRelative, w, h), null, 2));
+    $("#entryLineJson").val(JSON.stringify(serializePoints(drawLinePoints, useRelative, w, h), null, 2));
+    $("#drawDetectionModal").modal("hide");
+  }
+
+  function serializePoints(points, useRelative, w, h) {
+    return points.map(function (p) {
+      if (useRelative) {
+        return {
+          x: Number((p.x / w).toFixed(4)),
+          y: Number((p.y / h).toFixed(4))
+        };
+      }
+      return { x: Math.round(p.x), y: Math.round(p.y) };
+    });
+  }
+
+  function redrawCanvas() {
+    if (!drawCanvas || !drawCtx) {
+      return;
+    }
+    if (drawImage && drawImage.naturalWidth) {
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+      drawCtx.drawImage(drawImage, 0, 0);
+    } else {
+      drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    }
+    drawCtx.lineWidth = 2;
+    drawCtx.strokeStyle = "#00d1b2";
+    drawCtx.fillStyle = "rgba(0, 209, 178, 0.2)";
+    if (drawPolygonPoints.length >= 2) {
+      drawCtx.beginPath();
+      drawCtx.moveTo(drawPolygonPoints[0].x, drawPolygonPoints[0].y);
+      for (let i = 1; i < drawPolygonPoints.length; i++) {
+        drawCtx.lineTo(drawPolygonPoints[i].x, drawPolygonPoints[i].y);
+      }
+      if (drawPolygonPoints.length >= 3) {
+        drawCtx.lineTo(drawPolygonPoints[0].x, drawPolygonPoints[0].y);
+        drawCtx.fill();
+      }
+      drawCtx.stroke();
+    }
+    drawCtx.strokeStyle = "#ff6b6b";
+    if (drawLinePoints.length === 2) {
+      drawCtx.beginPath();
+      drawCtx.moveTo(drawLinePoints[0].x, drawLinePoints[0].y);
+      drawCtx.lineTo(drawLinePoints[1].x, drawLinePoints[1].y);
+      drawCtx.stroke();
+      drawCtx.fillStyle = "#ff6b6b";
+      drawCtx.beginPath();
+      drawCtx.arc(drawLinePoints[1].x, drawLinePoints[1].y, 5, 0, Math.PI * 2);
+      drawCtx.fill();
+    }
   }
 
   function loadDetectionSettings() {
@@ -407,6 +674,7 @@
       $("#telegramEnabled").prop("checked", !!detection.telegram_enabled);
       $("#telegramChatId").val(detection.telegram_chat_id || "");
       $("#polygonJson").val(JSON.stringify(detection.polygon || [], null, 2));
+      $("#entryLineJson").val(JSON.stringify(detection.entry_line || [], null, 2));
       const classes = detection.classes || [];
       $(".detection-class").each(function () {
         $(this).prop("checked", classes.indexOf($(this).val()) >= 0);
@@ -434,6 +702,20 @@
         return;
       }
     }
+    let entryLine = [];
+    const entryLineText = $("#entryLineJson").val().trim();
+    if (entryLineText) {
+      try {
+        entryLine = JSON.parse(entryLineText);
+      } catch (err) {
+        Swal.fire({ icon: "error", title: t("error"), text: "Entry line JSON 格式不正确", confirmButtonText: t("ok") });
+        return;
+      }
+      if (entryLine.length !== 0 && entryLine.length !== 2) {
+        Swal.fire({ icon: "error", title: t("error"), text: "进入方向线需要两个点", confirmButtonText: t("ok") });
+        return;
+      }
+    }
     const sampleFpsVal = parseInt($("#sampleFps").val(), 10);
     const cooldownVal = parseInt($("#cooldownSeconds").val(), 10);
     const consecutiveVal = parseInt($("#consecutiveFrames").val(), 10);
@@ -451,6 +733,7 @@
       min_move_px: Number.isNaN(minMoveVal) ? 12 : minMoveVal,
       classes: $(".detection-class:checked").map(function () { return $(this).val(); }).get(),
       polygon: polygon,
+      entry_line: entryLine,
       trigger_consecutive_frames: Number.isNaN(consecutiveVal) ? 2 : consecutiveVal,
       telegram_enabled: $("#telegramEnabled").prop("checked"),
       telegram_chat_id: $("#telegramChatId").val().trim()

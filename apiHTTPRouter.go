@@ -34,6 +34,20 @@ func HTTPAPIServer() {
 	}
 
 	public.Use(CrossOrigin())
+	public.Use(func(c *gin.Context) {
+		c.Next()
+		if len(c.Errors) == 0 {
+			return
+		}
+		for _, err := range c.Errors {
+			log.WithFields(logrus.Fields{
+				"module": "http_server",
+				"func":   "ErrorMiddleware",
+				"path":   c.Request.URL.Path,
+				"method": c.Request.Method,
+			}).Errorln(err.Error())
+		}
+	})
 	admin := public.Group("/")
 	admin.Use(AdminAuthMiddleware())
 
@@ -109,6 +123,7 @@ func HTTPAPIServer() {
 	admin.POST("/detection/settings/global", HTTPAPIUpdateDetectionSettings)
 	admin.GET("/detection/overview", HTTPAPIGetDetectionOverview)
 	admin.GET("/detection/service/status", HTTPAPIGetDetectionServiceStatus)
+	admin.GET("/detection/snapshot/:uuid/:channel", HTTPAPIGetDetectionSnapshot)
 	admin.GET("/detection/config/:uuid/:channel", HTTPAPIGetDetectionConfig)
 	admin.POST("/detection/config/:uuid/:channel", HTTPAPIUpdateDetectionConfig)
 	admin.GET("/detection/events", HTTPAPIGetDetectionEvents)

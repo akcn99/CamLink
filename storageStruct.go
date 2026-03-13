@@ -137,6 +137,7 @@ type DetectionChannelST struct {
 	MinBoxArea               int                `json:"min_box_area" groups:"api,config"`
 	MinMovePixels            int                `json:"min_move_px" groups:"api,config"`
 	EntryDirection           string             `json:"entry_direction,omitempty" groups:"api,config"`
+	EntryLine                []DetectionPointST `json:"entry_line,omitempty" groups:"api,config"`
 	Classes                  []string           `json:"classes,omitempty" groups:"api,config"`
 	Polygon                  []DetectionPointST `json:"polygon,omitempty" groups:"api,config"`
 	TriggerConsecutiveFrames int                `json:"trigger_consecutive_frames,omitempty" groups:"api,config"`
@@ -193,8 +194,8 @@ type ClientST struct {
 }
 
 // AudioEnabled returns true when audio is enabled for the channel.
-func (c *ChannelST) AudioEnabled() bool {
-	if c == nil || c.Audio == nil {
+func (c ChannelST) AudioEnabled() bool {
+	if c.Audio == nil {
 		return true
 	}
 	return *c.Audio

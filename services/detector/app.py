@@ -4,14 +4,15 @@ import os
 import threading
 import time
 import uuid
+from collections import deque
 from datetime import datetime
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple
 
 import cv2
 import numpy as np
 import requests
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request, Response
 
 app = Flask(__name__)
 
@@ -125,6 +126,8 @@ COCO_CLASSES = [
     "toothbrush",
 ]
 
+DEFAULT_VEHICLE_CLASSES = {"car", "motorcycle", "bicycle"}
+
 
 @dataclass
 class DetectionConfig:
@@ -139,6 +142,7 @@ class DetectionConfig:
     min_box_area: int
     min_move_px: int
     entry_direction: str
+    entry_line: List[Dict[str, float]]
     classes: List[str]
     polygon: List[Dict[str, float]]
     trigger_consecutive_frames: int
@@ -162,6 +166,7 @@ class TrackState:
     first_centroid: Optional[Tuple[int, int]] = None
     last_outside_centroid: Optional[Tuple[int, int]] = None
     box_area: float = 0.0
+    first_inside_ts: Optional[float] = None
 
 
 class SimpleTracker:
@@ -317,6 +322,89 @@ def normalize_polygon(polygon: List[Dict[str, float]], frame_w: int, frame_h: in
     return points
 
 
+def normalize_line(line: List[Dict[str, float]], frame_w: int, frame_h: int) -> List[Dict[str, int]]:
+    if not line or len(line) != 2:
+        return []
+    xs = [safe_float(p.get("x", 0)) for p in line]
+    ys = [safe_float(p.get("y", 0)) for p in line]
+    max_x = max(xs) if xs else 0.0
+    max_y = max(ys) if ys else 0.0
+    is_ratio = max_x <= 1.01 and max_y <= 1.01
+    points = []
+    for x, y in zip(xs, ys):
+        if is_ratio:
+            px = int(round(x * frame_w))
+            py = int(round(y * frame_h))
+        else:
+            px = int(round(x))
+            py = int(round(y))
+        px = max(0, min(frame_w - 1, px))
+        py = max(0, min(frame_h - 1, py))
+        points.append({"x": px, "y": py})
+    return points
+
+
+def line_side(point: Tuple[int, int], a: Dict[str, int], b: Dict[str, int]) -> float:
+    return (b["x"] - a["x"]) * (point[1] - a["y"]) - (b["y"] - a["y"]) * (point[0] - a["x"])
+
+
+def point_dist_to_segment(point: Tuple[int, int], a: Dict[str, int], b: Dict[str, int]) -> float:
+    ax, ay = float(a["x"]), float(a["y"])
+    bx, by = float(b["x"]), float(b["y"])
+    px, py = float(point[0]), float(point[1])
+    dx = bx - ax
+    dy = by - ay
+    if dx == 0 and dy == 0:
+        return math.hypot(px - ax, py - ay)
+    t = ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)
+    t = max(0.0, min(1.0, t))
+    proj_x = ax + t * dx
+    proj_y = ay + t * dy
+    return math.hypot(px - proj_x, py - proj_y)
+
+
+def segments_intersect(p1: Tuple[int, int], p2: Tuple[int, int], a: Dict[str, int], b: Dict[str, int], eps: float = 1e-6) -> bool:
+    def orient(p, q, r):
+        return (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+
+    def on_segment(p, q, r):
+        return (
+            min(p[0], q[0]) - eps <= r[0] <= max(p[0], q[0]) + eps
+            and min(p[1], q[1]) - eps <= r[1] <= max(p[1], q[1]) + eps
+        )
+
+    a_pt = (a["x"], a["y"])
+    b_pt = (b["x"], b["y"])
+    o1 = orient(p1, p2, a_pt)
+    o2 = orient(p1, p2, b_pt)
+    o3 = orient(a_pt, b_pt, p1)
+    o4 = orient(a_pt, b_pt, p2)
+
+    if abs(o1) <= eps and on_segment(p1, p2, a_pt):
+        return True
+    if abs(o2) <= eps and on_segment(p1, p2, b_pt):
+        return True
+    if abs(o3) <= eps and on_segment(a_pt, b_pt, p1):
+        return True
+    if abs(o4) <= eps and on_segment(a_pt, b_pt, p2):
+        return True
+    return (o1 > 0) != (o2 > 0) and (o3 > 0) != (o4 > 0)
+
+
+def line_crossed(prev_point: Optional[Tuple[int, int]], curr_point: Tuple[int, int], line: List[Dict[str, int]]) -> bool:
+    if not line or len(line) != 2:
+        return True
+    if prev_point is None:
+        return False
+    a, b = line
+    if segments_intersect(prev_point, curr_point, a, b):
+        return True
+    # tolerate near-line entry when movement is small
+    if point_dist_to_segment(curr_point, a, b) <= 3.0:
+        return True
+    return False
+
+
 def direction_ok(direction: str, dx: float, dy: float) -> bool:
     direction = (direction or "any").strip().lower()
     if direction in ("", "any"):
@@ -344,6 +432,14 @@ def save_snapshot(frame: np.ndarray, stream_uuid: str, channel_id: str, track_id
     path = os.path.join(target_dir, filename)
     cv2.imwrite(path, frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
     return path
+
+
+def format_event_time(iso_value: str) -> str:
+    try:
+        dt = datetime.fromisoformat(iso_value)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except Exception:
+        return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def send_telegram(token: str, chat_id: str, caption: str, photo_path: Optional[str]) -> None:
@@ -456,12 +552,31 @@ class DetectorWorker(threading.Thread):
         self.last_error = ""
         self.frame_shape = None
         self._watchdog_last_frame_ts = 0.0
+        self.frame_lock = threading.Lock()
+        self.last_frame = None
+        self.last_frame_ts = 0.0
+        self.frame_buffer = deque(maxlen=6)
+        self._last_detect_ts = 0.0
 
     def update_config(self, config: DetectionConfig):
         self.config = config
 
     def stop(self):
         self.stop_event.set()
+
+    def get_last_frame(self) -> Optional[np.ndarray]:
+        with self.frame_lock:
+            if self.last_frame is None:
+                return None
+            return self.last_frame.copy()
+
+    def _pick_frame_for_event(self, target_ts: Optional[float]) -> Optional[np.ndarray]:
+        if not self.frame_buffer:
+            return None
+        if target_ts is None:
+            return self.frame_buffer[-1][1].copy()
+        closest = min(self.frame_buffer, key=lambda item: abs(item[0] - target_ts))
+        return closest[1].copy()
 
     def status(self) -> Dict[str, object]:
         return {
@@ -480,7 +595,7 @@ class DetectorWorker(threading.Thread):
         cap = None
         while not self.stop_event.is_set():
             cfg = self.config
-            if cfg.mode != "vehicle_entry" or not cfg.polygon:
+            if cfg.mode != "vehicle_entry":
                 time.sleep(1)
                 continue
             if self._watchdog_last_frame_ts and time.time() - self._watchdog_last_frame_ts > RTSP_READ_TIMEOUT_SEC:
@@ -492,8 +607,17 @@ class DetectorWorker(threading.Thread):
             stream_url = cfg.stream_url
             if cap is None or not cap.isOpened():
                 if RTSP_TRANSPORT:
-                    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = f"rtsp_transport;{RTSP_TRANSPORT}|stimeout;{int(RTSP_OPEN_TIMEOUT_SEC * 1000000)}"
-                cap = cv2.VideoCapture(stream_url)
+                    options = [f"rtsp_transport;{RTSP_TRANSPORT}"]
+                    if RTSP_OPEN_TIMEOUT_SEC > 0:
+                        options.append(f"stimeout;{int(RTSP_OPEN_TIMEOUT_SEC * 1000000)}")
+                    if RTSP_READ_TIMEOUT_SEC > 0:
+                        options.append(f"rw_timeout;{int(RTSP_READ_TIMEOUT_SEC * 1000000)}")
+                    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "|".join(options)
+                backend = cv2.CAP_FFMPEG if hasattr(cv2, "CAP_FFMPEG") else 0
+                if backend:
+                    cap = cv2.VideoCapture(stream_url, backend)
+                else:
+                    cap = cv2.VideoCapture(stream_url)
                 cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
                 if hasattr(cv2, "CAP_PROP_OPEN_TIMEOUT_MSEC"):
                     cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, int(RTSP_OPEN_TIMEOUT_SEC * 1000))
@@ -505,7 +629,6 @@ class DetectorWorker(threading.Thread):
                     time.sleep(2)
                     continue
                 self.last_error = ""
-            start = time.time()
             ok, frame = cap.read()
             if not ok or frame is None:
                 self.last_error = "RTSP read failed"
@@ -514,17 +637,30 @@ class DetectorWorker(threading.Thread):
                 cap = None
                 time.sleep(1)
                 continue
+            frame_ts = time.time()
+            frame_copy = frame.copy()
+            with self.frame_lock:
+                self.last_frame = frame_copy
+                self.last_frame_ts = frame_ts
+            self.frame_buffer.append((frame_ts, frame_copy))
             self._watchdog_last_frame_ts = time.time()
             self.last_error = ""
             self.last_frame_at = datetime.now().astimezone().isoformat(timespec="seconds")
             self.frame_shape = list(frame.shape[:2])
+            interval = max(0.2, 1.0 / max(1, cfg.sample_fps))
+            if frame_ts - self._last_detect_ts < interval:
+                continue
+            self._last_detect_ts = frame_ts
             h, w = frame.shape[:2]
             polygon = normalize_polygon(cfg.polygon, w, h)
+            entry_line = normalize_line(cfg.entry_line, w, h)
             if not polygon:
-                time.sleep(1)
                 continue
             conf_threshold = cfg.confidence_threshold if cfg.confidence_threshold > 0 else CONF_THRESHOLD
-            detections = self.detector.detect(frame, set(cfg.classes), conf_threshold, cfg.min_box_area)
+            allowed_classes = set(cfg.classes or [])
+            if not allowed_classes:
+                allowed_classes = DEFAULT_VEHICLE_CLASSES
+            detections = self.detector.detect(frame, allowed_classes, conf_threshold, cfg.min_box_area)
             self.last_detection_count = len(detections)
             try:
                 tracks = self.tracker.update(detections)
@@ -539,6 +675,7 @@ class DetectorWorker(threading.Thread):
                 if inside:
                     if not track.inside:
                         track.inside_streak = 1
+                        track.first_inside_ts = time.time()
                     else:
                         track.inside_streak += 1
                 else:
@@ -546,6 +683,7 @@ class DetectorWorker(threading.Thread):
                     track.seen_outside = True
                     track.triggered = False
                     track.last_outside_centroid = track.centroid
+                    track.first_inside_ts = None
                 track.inside = inside
 
                 move_ok = True
@@ -566,25 +704,30 @@ class DetectorWorker(threading.Thread):
                     dx = track.centroid[0] - track.prev_centroid[0]
                     dy = track.centroid[1] - track.prev_centroid[1]
 
+                line_ok = True
+                if entry_line:
+                    line_ok = line_crossed(track.last_outside_centroid, track.centroid, entry_line)
+                allow_first_inside = (not entry_line) and (cfg.entry_direction or "any").strip().lower() in ("", "any")
+
                 if (
                     inside
-                    and (track.seen_outside or cfg.min_move_px > 0)
+                    and line_ok
                     and track.inside_streak >= max(1, cfg.trigger_consecutive_frames)
                     and not track.triggered
                     and now - self.last_trigger_time >= max(1, cfg.cooldown_seconds)
                     and move_ok
                     and direction_ok(cfg.entry_direction, dx, dy)
+                    and (track.seen_outside or allow_first_inside)
                 ):
                     self.last_trigger_time = now
                     track.triggered = True
                     entered_at = datetime.now().astimezone().isoformat(timespec="seconds")
-                    snapshot_path = save_snapshot(frame, cfg.stream_uuid, cfg.channel_id, track.track_id, track.object_class)
+                    snapshot_frame = self._pick_frame_for_event(track.first_inside_ts)
+                    if snapshot_frame is None:
+                        snapshot_frame = frame
+                    snapshot_path = save_snapshot(snapshot_frame, cfg.stream_uuid, cfg.channel_id, track.track_id, track.object_class)
                     self.send_event(track.object_class, track.track_id, entered_at, snapshot_path, cfg)
-            # enforce sample fps
-            interval = max(0.2, 1.0 / max(1, cfg.sample_fps))
-            elapsed = time.time() - start
-            if elapsed < interval:
-                time.sleep(interval - elapsed)
+            # continue reading frames to keep snapshots near real-time
 
     def send_event(self, obj_class: str, track_id: str, entered_at: str, snapshot_path: str, cfg: DetectionConfig):
         payload = {
@@ -608,7 +751,8 @@ class DetectorWorker(threading.Thread):
             app.logger.error("event ingest error: %s", exc)
 
         if cfg.telegram_enabled and cfg.telegram_chat_id:
-            caption = f"[{cfg.stream_name} / CH{cfg.channel_id}] 车辆进入\n类型: {obj_class}\n时间: {entered_at}"
+            human_time = format_event_time(entered_at)
+            caption = f"#事件截图#\n[{cfg.stream_name}/CH{cfg.channel_id}]检测到外来车进入\n时间：{human_time}"
             send_telegram(self.telegram_token, cfg.telegram_chat_id, caption, snapshot_path)
 
 
@@ -639,6 +783,14 @@ class DetectorManager:
                     self.workers[key].stop()
                     del self.workers[key]
             self.last_config = configs
+
+    def get_snapshot(self, stream_uuid: str, channel_id: str) -> Optional[np.ndarray]:
+        key = f"{stream_uuid}:{channel_id}"
+        with self.lock:
+            worker = self.workers.get(key)
+        if not worker:
+            return None
+        return worker.get_last_frame()
 
     def fetch_config(self) -> List[DetectionConfig]:
         if not CAMLINK_DETECTOR_TOKEN:
@@ -673,6 +825,7 @@ class DetectorManager:
                         min_box_area=int(det.get("min_box_area", 0)),
                         min_move_px=int(det.get("min_move_px", 0)),
                         entry_direction=str(det.get("entry_direction", "any")),
+                        entry_line=det.get("entry_line", []),
                         classes=det.get("classes", []),
                         polygon=det.get("polygon", []),
                         trigger_consecutive_frames=int(det.get("trigger_consecutive_frames", 2)),
@@ -696,6 +849,13 @@ class DetectorManager:
 manager: Optional[DetectorManager] = None
 
 
+def detector_token_ok() -> bool:
+    token = request.headers.get("X-CamLink-Detector-Token", "").strip()
+    if not token:
+        token = request.args.get("token", "").strip()
+    return token != "" and token == CAMLINK_DETECTOR_TOKEN
+
+
 @app.get("/healthz")
 def healthz():
     status = {
@@ -709,6 +869,21 @@ def healthz():
         status["last_error"] = manager.last_error
         status["streams"] = [worker.status() for worker in manager.workers.values()]
     return jsonify(status)
+
+
+@app.get("/v1/snapshot/<stream_uuid>/<channel_id>")
+def snapshot(stream_uuid: str, channel_id: str):
+    if not detector_token_ok():
+        return jsonify({"status": "unauthorized"}), 401
+    if not manager:
+        return jsonify({"status": "not_ready"}), 503
+    frame = manager.get_snapshot(stream_uuid, channel_id)
+    if frame is None:
+        return jsonify({"status": "not_found"}), 404
+    ok, buf = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+    if not ok:
+        return jsonify({"status": "encode_failed"}), 500
+    return Response(buf.tobytes(), mimetype="image/jpeg", headers={"Cache-Control": "no-store"})
 
 
 @app.get("/v1/detector/info")

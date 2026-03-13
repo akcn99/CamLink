@@ -1,6 +1,7 @@
 $(document).ready(() => {
   applyI18n();
   localImages();
+  ensureEditStreamUI();
   if (localStorage.getItem('defaultPlayer') != null) {
     $('input[name=defaultPlayer]').val([localStorage.getItem('defaultPlayer')]);
   }
@@ -156,6 +157,8 @@ function goRequest(method, uuid, data) {
   };
   if (data != null) {
     ajaxParam.data = JSON.stringify(data);
+    ajaxParam.contentType = 'application/json';
+    ajaxParam.processData = false;
   }
   $.ajax(ajaxParam);
 }
@@ -475,6 +478,43 @@ function addChannel() {
   if (typeof applyI18n === "function") {
     applyI18n();
   }
+}
+
+function ensureEditStreamUI() {
+  if ($('#uuid').length === 0 || typeof streams === 'undefined') {
+    return;
+  }
+  const uuid = $('#uuid').val();
+  if (!uuid || !streams[uuid] || !streams[uuid].channels) {
+    return;
+  }
+  const channelKeys = Object.keys(streams[uuid].channels).filter(k => k !== '0').sort();
+
+  if ($('button[onclick="editStreamSubmit()"]').length === 0) {
+    const actions = `
+      <div class="row mb-3" id="edit-stream-actions">
+        <div class="col-12">
+          <button type="button" onclick="addChannel()" class="btn btn-secondary">Add channel</button>
+          <button type="button" onclick="editStreamSubmit()" class="btn btn-primary">Save stream</button>
+        </div>
+      </div>`;
+    $('#streams-form-wrapper').after(actions);
+  }
+
+  const subForms = $('#streams-form-wrapper .stream-form').not('.main-form');
+  if (subForms.length >= channelKeys.length) {
+    return;
+  }
+  channelKeys.slice(subForms.length).forEach(function (key) {
+    addChannel();
+    const channel = streams[uuid].channels[key] || {};
+    const form = $('#streams-form-wrapper .stream-form').not('.main-form').last();
+    form.find('input[name="stream-url"]').val(channel.url || '');
+    form.find('select[name="stream-ondemand"]').val(channel.on_demand ? '1' : '0');
+    form.find('input[name="debug"]').prop('checked', !!channel.debug);
+    const audioEnabled = (channel.audio !== false);
+    form.find('input[name="audio"]').prop('checked', audioEnabled);
+  });
 }
 
 function chanellTemplate() {

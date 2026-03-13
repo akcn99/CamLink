@@ -20,6 +20,10 @@ func (obj *StorageST) StreamChannelMake(val ChannelST) ChannelST {
 			"call":   "mergo.Merge",
 		}).Errorln(err.Error())
 	}
+	// Ensure explicit audio settings survive mergo's empty-value rules.
+	if val.Audio != nil {
+		channel.Audio = val.Audio
+	}
 	applyChannelDefaults(&channel)
 	//make client's
 	channel.clients = make(map[string]ClientST)

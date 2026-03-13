@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"net/url"
@@ -186,6 +187,20 @@ func HTTPAPIUpdateDetectionConfig(c *gin.Context) {
 		}
 		if pt.X < 0 || pt.Y < 0 {
 			c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "polygon coordinates must be non-negative"})
+			return
+		}
+	}
+	if len(payload.EntryLine) != 0 && len(payload.EntryLine) != 2 {
+		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "entry_line must contain exactly 2 points"})
+		return
+	}
+	for _, pt := range payload.EntryLine {
+		if math.IsNaN(pt.X) || math.IsNaN(pt.Y) || math.IsInf(pt.X, 0) || math.IsInf(pt.Y, 0) {
+			c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "entry_line contains invalid coordinates"})
+			return
+		}
+		if pt.X < 0 || pt.Y < 0 {
+			c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "entry_line coordinates must be non-negative"})
 			return
 		}
 	}
@@ -400,6 +415,60 @@ func HTTPAPIGetDetectionServiceStatus(c *gin.Context) {
 		}
 	}
 	c.IndentedJSON(http.StatusOK, Message{Status: 1, Payload: payload})
+}
+
+func HTTPAPIGetDetectionSnapshot(c *gin.Context) {
+	uuid := c.Param("uuid")
+	channelID := c.Param("channel")
+	if uuid == "" || channelID == "" {
+		c.IndentedJSON(http.StatusBadRequest, Message{Status: 0, Payload: "invalid stream or channel"})
+		return
+	}
+	streamInfo, err := Storage.StreamInfo(uuid)
+	if err != nil {
+		c.IndentedJSON(http.StatusNotFound, Message{Status: 0, Payload: err.Error()})
+		return
+	}
+	if _, ok := streamInfo.Channels[channelID]; !ok {
+		c.IndentedJSON(http.StatusNotFound, Message{Status: 0, Payload: "channel not found"})
+		return
+	}
+	detection := Storage.ServerDetection()
+	if detection.DetectorURL == "" {
+		c.IndentedJSON(http.StatusServiceUnavailable, Message{Status: 0, Payload: "detector url is empty"})
+		return
+	}
+	target := fmt.Sprintf("%s/v1/snapshot/%s/%s", strings.TrimRight(detection.DetectorURL, "/"), url.PathEscape(uuid), url.PathEscape(channelID))
+	req, err := http.NewRequest(http.MethodGet, target, nil)
+	if err != nil {
+		c.IndentedJSON(http.StatusInternalServerError, Message{Status: 0, Payload: err.Error()})
+		return
+	}
+	if detection.AccessToken != "" {
+		req.Header.Set("X-CamLink-Detector-Token", detection.AccessToken)
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.IndentedJSON(http.StatusBadGateway, Message{Status: 0, Payload: err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		c.IndentedJSON(http.StatusBadGateway, Message{Status: 0, Payload: fmt.Sprintf("detector snapshot failed: %s", resp.Status)})
+		return
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		c.IndentedJSON(http.StatusInternalServerError, Message{Status: 0, Payload: err.Error()})
+		return
+	}
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "image/jpeg"
+	}
+	c.Header("Cache-Control", "no-store")
+	c.Data(http.StatusOK, contentType, body)
 }
 
 func hydrateDetectionEvent(event *DetectionEventST) error {
