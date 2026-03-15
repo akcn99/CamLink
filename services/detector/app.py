@@ -40,6 +40,9 @@ IOU_THRESHOLD = float(os.getenv("YOLO_IOU", "0.45"))
 RTSP_READ_TIMEOUT_SEC = float(os.getenv("CAMLINK_RTSP_READ_TIMEOUT", "10"))
 RTSP_OPEN_TIMEOUT_SEC = float(os.getenv("CAMLINK_RTSP_OPEN_TIMEOUT", "10"))
 RTSP_TRANSPORT = os.getenv("CAMLINK_RTSP_TRANSPORT", "tcp").strip().lower()
+RTSP_MAX_CONSEC_FAILS = int(os.getenv("CAMLINK_RTSP_MAX_FAILS", "5"))
+RTSP_BACKOFF_BASE_SEC = float(os.getenv("CAMLINK_RTSP_BACKOFF_BASE", "0.5"))
+RTSP_BACKOFF_MAX_SEC = float(os.getenv("CAMLINK_RTSP_BACKOFF_MAX", "5"))
 
 SNAPSHOT_DIR = os.getenv("SNAPSHOT_DIR", "/data/snapshots")
 
@@ -557,6 +560,8 @@ class DetectorWorker(threading.Thread):
         self.last_frame_ts = 0.0
         self.frame_buffer = deque(maxlen=6)
         self._last_detect_ts = 0.0
+        self._consecutive_failures = 0
+        self._reopen_backoff = RTSP_BACKOFF_BASE_SEC
 
     def update_config(self, config: DetectionConfig):
         self.config = config
@@ -626,8 +631,12 @@ class DetectorWorker(threading.Thread):
                 if not cap.isOpened():
                     self.last_error = "RTSP open failed"
                     app.logger.warning("RTSP open failed: %s", stream_url)
-                    time.sleep(2)
+                    self._consecutive_failures += 1
+                    time.sleep(min(RTSP_BACKOFF_MAX_SEC, self._reopen_backoff))
+                    self._reopen_backoff = min(RTSP_BACKOFF_MAX_SEC, max(RTSP_BACKOFF_BASE_SEC, self._reopen_backoff * 1.5))
                     continue
+                self._consecutive_failures = 0
+                self._reopen_backoff = RTSP_BACKOFF_BASE_SEC
                 self.last_error = ""
             ok, frame = cap.read()
             if not ok or frame is None:
@@ -635,8 +644,15 @@ class DetectorWorker(threading.Thread):
                 app.logger.warning("RTSP read failed; reopen")
                 cap.release()
                 cap = None
-                time.sleep(1)
+                self._consecutive_failures += 1
+                if self._consecutive_failures >= RTSP_MAX_CONSEC_FAILS:
+                    time.sleep(min(RTSP_BACKOFF_MAX_SEC, self._reopen_backoff))
+                    self._reopen_backoff = min(RTSP_BACKOFF_MAX_SEC, max(RTSP_BACKOFF_BASE_SEC, self._reopen_backoff * 1.5))
+                else:
+                    time.sleep(RTSP_BACKOFF_BASE_SEC)
                 continue
+            self._consecutive_failures = 0
+            self._reopen_backoff = RTSP_BACKOFF_BASE_SEC
             frame_ts = time.time()
             frame_copy = frame.copy()
             with self.frame_lock:
@@ -706,8 +722,10 @@ class DetectorWorker(threading.Thread):
 
                 line_ok = True
                 if entry_line:
-                    line_ok = line_crossed(track.last_outside_centroid, track.centroid, entry_line)
+                    prev_point = track.prev_centroid or track.last_outside_centroid
+                    line_ok = line_crossed(prev_point, track.centroid, entry_line)
                 allow_first_inside = (not entry_line) and (cfg.entry_direction or "any").strip().lower() in ("", "any")
+                allow_first_inside = allow_first_inside or (entry_line and track.prev_centroid is not None)
 
                 if (
                     inside
